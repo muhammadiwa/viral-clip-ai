@@ -1,0 +1,831 @@
+{
+  "version": "1.2",
+  "clip_cases": [
+    {
+      "name": "balanced-highlight",
+      "motion_strength": 0.82,
+      "audio_energy": 0.64,
+      "peak_energy": 0.82,
+      "keyword_score": 0.74,
+      "duration_ms": 18000,
+      "target_duration_ms": 20000,
+      "weights": {
+        "motion": 0.35,
+        "audio": 0.25,
+        "keywords": 0.25,
+        "duration": 0.15
+      },
+      "bias": -0.05,
+      "threshold": 0.55,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.72,
+        "max": 0.82
+      },
+      "components": {
+        "motion": {
+          "min": 0.8,
+          "max": 0.85
+        },
+        "audio": {
+          "min": 0.7,
+          "max": 0.85
+        },
+        "keywords": {
+          "min": 0.7,
+          "max": 0.8
+        },
+        "duration": {
+          "min": 0.85,
+          "max": 0.95
+        }
+      },
+      "locale": "en-US",
+      "genre": "talk_show",
+      "frame_diff_expectation": {
+        "max": 0.12
+      },
+      "reference_artifacts": [
+        "https://cdn.example.com/golden/balanced-highlight.mp4"
+      ],
+      "golden_artifact_uri": "https://cdn.example.com/golden/balanced-highlight.mp4",
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/balanced-highlight.png",
+        "metadata": {
+          "type": "bounding_box",
+          "label": "Action focus",
+          "x": 0.12,
+          "y": 0.18,
+          "width": 0.76,
+          "height": 0.64
+        }
+      }
+    },
+    {
+      "name": "low-signal-rejected",
+      "motion_strength": 0.3,
+      "audio_energy": 0.05,
+      "peak_energy": 0.7,
+      "keyword_score": 0.2,
+      "duration_ms": 10000,
+      "target_duration_ms": 18000,
+      "weights": {
+        "motion": 0.35,
+        "audio": 0.25,
+        "keywords": 0.25,
+        "duration": 0.15
+      },
+      "bias": -0.1,
+      "threshold": 0.55,
+      "passes_threshold": false,
+      "expected_confidence": {
+        "max": 0.4
+      },
+      "locale": "id-ID",
+      "genre": "podcast",
+      "frame_diff_expectation": {
+        "max": 0.5
+      }
+    },
+    {
+      "name": "esports-momentum",
+      "motion_strength": 0.9,
+      "audio_energy": 0.78,
+      "peak_energy": 0.95,
+      "keyword_score": 0.62,
+      "duration_ms": 15000,
+      "target_duration_ms": 18000,
+      "weights": {
+        "motion": 0.4,
+        "audio": 0.25,
+        "keywords": 0.2,
+        "duration": 0.15
+      },
+      "bias": 0.02,
+      "threshold": 0.65,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.8,
+        "max": 0.86
+      },
+      "components": {
+        "motion": {
+          "min": 0.88,
+          "max": 0.92
+        },
+        "audio": {
+          "min": 0.8,
+          "max": 0.84
+        },
+        "duration": {
+          "min": 0.8,
+          "max": 0.86
+        }
+      }
+    },
+    {
+      "name": "documentary-narrative",
+      "motion_strength": 0.35,
+      "audio_energy": 0.55,
+      "peak_energy": 0.65,
+      "keyword_score": 0.88,
+      "duration_ms": 24000,
+      "target_duration_ms": 22000,
+      "weights": {
+        "motion": 0.2,
+        "audio": 0.25,
+        "keywords": 0.4,
+        "duration": 0.15
+      },
+      "bias": -0.03,
+      "threshold": 0.65,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.7,
+        "max": 0.78
+      },
+      "components": {
+        "audio": {
+          "min": 0.8,
+          "max": 0.86
+        },
+        "keywords": {
+          "min": 0.84,
+          "max": 0.9
+        },
+        "duration": {
+          "min": 0.88,
+          "max": 0.94
+        }
+      }
+    },
+    {
+      "name": "multilingual-voiceover",
+      "motion_strength": 0.6,
+      "audio_energy": 0.48,
+      "peak_energy": 0.52,
+      "keyword_score": 0.9,
+      "duration_ms": 20000,
+      "target_duration_ms": 20000,
+      "weights": {
+        "motion": 0.25,
+        "audio": 0.2,
+        "keywords": 0.4,
+        "duration": 0.15
+      },
+      "bias": 0.0,
+      "threshold": 0.75,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.82,
+        "max": 0.87
+      },
+      "components": {
+        "audio": {
+          "min": 0.9,
+          "max": 0.94
+        },
+        "keywords": {
+          "min": 0.88,
+          "max": 0.92
+        },
+        "duration": {
+          "min": 0.98,
+          "max": 1.0
+        }
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/clip/multilingual-voiceover.mp4"
+      ]
+    },
+    {
+      "name": "concert-surge",
+      "motion_strength": 0.94,
+      "audio_energy": 0.88,
+      "peak_energy": 0.97,
+      "keyword_score": 0.55,
+      "duration_ms": 26000,
+      "target_duration_ms": 24000,
+      "weights": {
+        "motion": 0.38,
+        "audio": 0.32,
+        "keywords": 0.18,
+        "duration": 0.12
+      },
+      "bias": 0.06,
+      "threshold": 0.72,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.86,
+        "max": 0.92
+      },
+      "components": {
+        "motion": {
+          "min": 0.92,
+          "max": 0.96
+        },
+        "audio": {
+          "min": 0.9,
+          "max": 0.94
+        },
+        "duration": {
+          "min": 0.9,
+          "max": 0.97
+        }
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/clip/concert-surge.mp4"
+      ]
+    },
+    {
+      "name": "longform-interview-midpoint",
+      "motion_strength": 0.28,
+      "audio_energy": 0.72,
+      "peak_energy": 0.64,
+      "keyword_score": 0.94,
+      "duration_ms": 42000,
+      "target_duration_ms": 30000,
+      "weights": {
+        "motion": 0.1,
+        "audio": 0.25,
+        "keywords": 0.45,
+        "duration": 0.2
+      },
+      "bias": -0.02,
+      "threshold": 0.7,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.74,
+        "max": 0.82
+      },
+      "components": {
+        "keywords": {
+          "min": 0.9,
+          "max": 0.95
+        },
+        "duration": {
+          "min": 0.6,
+          "max": 0.92
+        }
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/clip/longform-interview-midpoint.mp4"
+      ]
+    },
+    {
+      "name": "jp-drama-longform",
+      "motion_strength": 0.46,
+      "audio_energy": 0.58,
+      "peak_energy": 0.7,
+      "keyword_score": 0.88,
+      "duration_ms": 54000,
+      "target_duration_ms": 60000,
+      "weights": {
+        "motion": 0.15,
+        "audio": 0.25,
+        "keywords": 0.4,
+        "duration": 0.2
+      },
+      "bias": 0.01,
+      "threshold": 0.68,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.73,
+        "max": 0.83
+      },
+      "frame_diff_expectation": {
+        "max": 0.12
+      },
+      "locale": "ja-JP",
+      "genre": "narrative",
+      "reference_artifacts": [
+        "https://cdn.example.com/golden/jp-drama-longform.mp4"
+      ],
+      "golden_artifact_uri": "https://cdn.example.com/golden/jp-drama-longform.mp4"
+    },
+    {
+      "name": "ar-news-panel",
+      "motion_strength": 0.52,
+      "audio_energy": 0.61,
+      "peak_energy": 0.74,
+      "keyword_score": 0.69,
+      "duration_ms": 120000,
+      "target_duration_ms": 105000,
+      "weights": {
+        "motion": 0.25,
+        "audio": 0.25,
+        "keywords": 0.35,
+        "duration": 0.15
+      },
+      "bias": -0.02,
+      "threshold": 0.6,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.68,
+        "max": 0.85
+      },
+      "components": {
+        "motion": {
+          "min": 0.45,
+          "max": 0.75
+        },
+        "audio": {
+          "min": 0.55,
+          "max": 0.9
+        },
+        "keywords": {
+          "min": 0.62,
+          "max": 0.82
+        },
+        "duration": {
+          "min": 0.82,
+          "max": 1.08
+        }
+      },
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/clips/ar-news-panel.mp4"
+      ],
+      "locale": "ar-EG",
+      "genre": "news",
+      "frame_diff_expectation": {
+        "max": 0.16
+      },
+      "golden_artifact_uri": "https://cdn.viralclip.ai/qa/golden/ar-news-panel.mp4",
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/ar-news-panel.png",
+        "metadata": {
+          "type": "bounding_box",
+          "label": "Lower third spill",
+          "x": 0.08,
+          "y": 0.78,
+          "width": 0.84,
+          "height": 0.18
+        }
+      }
+    },
+    {
+      "name": "id-podcast-marathon",
+      "motion_strength": 0.24,
+      "audio_energy": 0.72,
+      "peak_energy": 0.81,
+      "keyword_score": 0.63,
+      "duration_ms": 900000,
+      "target_duration_ms": 840000,
+      "weights": {
+        "motion": 0.1,
+        "audio": 0.42,
+        "keywords": 0.3,
+        "duration": 0.18
+      },
+      "bias": 0.04,
+      "threshold": 0.58,
+      "passes_threshold": true,
+      "expected_confidence": {
+        "min": 0.64,
+        "max": 0.85
+      },
+      "components": {
+        "audio": {
+          "min": 0.7,
+          "max": 0.92
+        },
+        "keywords": {
+          "min": 0.6,
+          "max": 0.75
+        },
+        "duration": {
+          "min": 0.88,
+          "max": 1.1
+        }
+      },
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/clips/id-podcast-marathon.mp4"
+      ],
+      "locale": "id-ID",
+      "genre": "podcast",
+      "frame_diff_expectation": {
+        "max": 0.1
+      },
+      "golden_artifact_uri": "https://cdn.viralclip.ai/qa/golden/id-podcast-marathon.mp4",
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/id-podcast-marathon.png",
+        "metadata": {
+          "type": "waveform_focus",
+          "label": "Host energy dip",
+          "start_ms": 420000,
+          "end_ms": 465000
+        }
+      }
+    }
+  ],
+  "subtitle_cases": [
+    {
+      "name": "brand-fallback-overrides",
+      "locale": "en-US",
+      "preset": null,
+      "overrides": {
+        "font_size": 60
+      },
+      "settings_overrides": {
+        "subtitle_brand_font_family": "Acme Sans",
+        "subtitle_brand_text_color": "#FF6600",
+        "subtitle_brand_background_color": "#111111AA",
+        "subtitle_brand_uppercase": true,
+        "subtitle_brand_preset_name": "acme-brand"
+      },
+      "expected": {
+        "font_family": "Acme Sans",
+        "text_color": "#FF6600",
+        "background_color": "#111111AA",
+        "font_size": 60,
+        "uppercase": true
+      }
+    },
+    {
+      "name": "karaoke-template",
+      "locale": "ko-KR",
+      "preset": "karaoke-neon",
+      "overrides": {},
+      "settings_overrides": {},
+      "expected": {
+        "font_family": "Montserrat",
+        "karaoke": true,
+        "fade_in_ms": 80,
+        "fade_out_ms": 60
+      },
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/karaoke-template.png",
+        "metadata": {
+          "type": "baseline_overlay",
+          "highlight_channel": "lyric_glow",
+          "y_offset": 0.82
+        }
+      }
+    },
+    {
+      "name": "japanese-brand-outline",
+      "locale": "ja-JP",
+      "preset": null,
+      "overrides": {
+        "font_family": "Noto Sans JP",
+        "outline": 4
+      },
+      "settings_overrides": {
+        "subtitle_brand_text_color": "#FFE066",
+        "subtitle_brand_background_color": "#141218D0",
+        "subtitle_brand_highlight_color": "#38BDF8"
+      },
+      "expected": {
+        "font_family": "Noto Sans JP",
+        "text_color": "#FFE066",
+        "background_color": "#141218D0",
+        "highlight_color": "#38BDF8",
+        "outline": 4
+      }
+    },
+    {
+      "name": "arabic-right-to-left",
+      "locale": "ar-SA",
+      "preset": "clean-white",
+      "overrides": {
+        "font_family": "Cairo",
+        "alignment": 1,
+        "uppercase": false
+      },
+      "settings_overrides": {
+        "subtitle_brand_font_family": "Cairo",
+        "subtitle_brand_uppercase": false
+      },
+      "expected": {
+        "font_family": "Cairo",
+        "alignment": 1,
+        "uppercase": false
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/subtitles/arabic-right-to-left.ass"
+      ]
+    },
+    {
+      "name": "vertical-reel-outline",
+      "locale": "en-US",
+      "preset": "bold-outline",
+      "overrides": {
+        "font_size": 72,
+        "margin_horizontal": 60,
+        "alignment": 8
+      },
+      "settings_overrides": {
+        "subtitle_brand_text_color": "#FFFFFF",
+        "subtitle_brand_background_color": "#00000000",
+        "subtitle_brand_stroke_color": "#000000",
+        "subtitle_brand_uppercase": true
+      },
+      "expected": {
+        "font_size": 72,
+        "margin_horizontal": 60,
+        "alignment": 8,
+        "uppercase": true,
+        "stroke_color": "#000000"
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/subtitles/vertical-reel-outline.ass"
+      ]
+    },
+    {
+      "name": "brand-kit-override-library",
+      "locale": "en-GB",
+      "preset": null,
+      "overrides": {
+        "preset": "brand-kit",
+        "font_family": "Orbitron",
+        "highlight_color": "#6EE7B7"
+      },
+      "settings_overrides": {
+        "subtitle_brand_preset_name": "stream-brand",
+        "subtitle_brand_text_color": "#FACC15",
+        "subtitle_brand_background_color": "#1E1B4BCC"
+      },
+      "expected": {
+        "font_family": "Orbitron",
+        "highlight_color": "#6EE7B7",
+        "text_color": "#FACC15",
+        "background_color": "#1E1B4BCC"
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/subtitles/brand-kit-override-library.ass"
+      ]
+    },
+    {
+      "name": "spanish-captions",
+      "locale": "es-ES",
+      "preset": "brand-kit",
+      "overrides": {
+        "font_family": "Montserrat",
+        "text_transform": "none",
+        "font_size": 58
+      },
+      "settings_overrides": {},
+      "expected": {
+        "font_family": "Montserrat",
+        "text_transform": "none",
+        "font_size": 58
+      },
+      "reference_artifacts": [
+        "https://cdn.example.com/golden/subtitles/spanish-captions.ass"
+      ]
+    },
+    {
+      "name": "ja-karaoke-intense",
+      "locale": "ja-JP",
+      "preset": "karaoke-bounce",
+      "overrides": {
+        "font_size": 58,
+        "stroke_color": "#FF2E88"
+      },
+      "settings_overrides": {
+        "subtitle_brand_font_family": "Noto Sans JP",
+        "subtitle_brand_background_color": "#0A0A0ACC",
+        "subtitle_brand_uppercase": false
+      },
+      "expected": {
+        "font_family": "Noto Sans JP",
+        "font_size": 58,
+        "stroke_color": "#FF2E88",
+        "background_color": "#0A0A0ACC",
+        "uppercase": false
+      },
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/subtitles/ja-karaoke-intense.json"
+      ],
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/ja-karaoke-intense.png",
+        "metadata": {
+          "type": "lyric_alignment",
+          "label": "Lead-in timing",
+          "lead_ms": 320
+        }
+      }
+    },
+    {
+      "name": "ar-rtl-lyrics",
+      "locale": "ar-SA",
+      "preset": "rtl-lyrics",
+      "overrides": {
+        "font_family": "Cairo",
+        "font_size": 54
+      },
+      "settings_overrides": {
+        "subtitle_brand_text_color": "#F8E71C",
+        "subtitle_brand_background_color": "#111111D0"
+      },
+      "expected": {
+        "font_family": "Cairo",
+        "font_size": 54,
+        "text_color": "#F8E71C",
+        "background_color": "#111111D0"
+      },
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/subtitles/ar-rtl-lyrics.json"
+      ],
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/ar-rtl-lyrics.png",
+        "metadata": {
+          "type": "rtl_guides",
+          "baseline_alignment": "right",
+          "safe_margin": 0.06
+        }
+      }
+    }
+  ],
+  "mix_cases": [
+    {
+      "name": "balanced-mix",
+      "locale": "en-US",
+      "settings_overrides": {
+        "tts_music_gain_db": -8.0,
+        "tts_voice_gain_db": 0.0,
+        "tts_loudness_target_i": -18.0,
+        "tts_loudness_true_peak": -1.5,
+        "tts_loudness_range": 7.0
+      },
+      "expectations": {
+        "bed_gain": {
+          "approx": 0.398,
+          "tolerance": 0.015
+        },
+        "voice_gain": {
+          "approx": 1.0,
+          "tolerance": 0.02
+        },
+        "loudness_target_i": -18.0,
+        "loudness_true_peak": -1.5,
+        "loudness_range": 7.0
+      }
+    },
+    {
+      "name": "voice-forward",
+      "locale": "en-US",
+      "settings_overrides": {
+        "tts_music_gain_db": -12.0,
+        "tts_voice_gain_db": 1.5,
+        "tts_loudness_target_i": -20.0,
+        "tts_loudness_true_peak": -1.0,
+        "tts_loudness_range": 9.0
+      },
+      "expectations": {
+        "bed_gain": {
+          "approx": 0.251,
+          "tolerance": 0.015
+        },
+        "voice_gain": {
+          "approx": 1.189,
+          "tolerance": 0.02
+        },
+        "loudness_target_i": -20.0,
+        "loudness_true_peak": -1.0,
+        "loudness_range": 9.0
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/mix/voice-forward.json"
+      ]
+    },
+    {
+      "name": "dialogue-bed-soft",
+      "locale": "fr-FR",
+      "settings_overrides": {
+        "tts_music_gain_db": -16.0,
+        "tts_voice_gain_db": 0.5,
+        "tts_loudness_target_i": -21.0,
+        "tts_loudness_true_peak": -2.0,
+        "tts_loudness_range": 6.5
+      },
+      "expectations": {
+        "bed_gain": {
+          "approx": 0.158,
+          "tolerance": 0.015
+        },
+        "voice_gain": {
+          "approx": 1.059,
+          "tolerance": 0.02
+        },
+        "loudness_target_i": -21.0,
+        "loudness_true_peak": -2.0,
+        "loudness_range": 6.5
+      },
+      "reference_artifacts": [
+        "s3://qa/baseline/mix/dialogue-bed-soft.json"
+      ]
+    },
+    {
+      "name": "latin-pop-balance",
+      "locale": "es-ES",
+      "settings_overrides": {
+        "tts_music_gain_db": -10.5,
+        "tts_voice_gain_db": 1.2,
+        "tts_loudness_target_i": -18.5,
+        "tts_loudness_true_peak": -1.2,
+        "tts_loudness_range": 8.5
+      },
+      "expectations": {
+        "bed_gain": {
+          "approx": 0.298,
+          "tolerance": 0.02
+        },
+        "voice_gain": {
+          "approx": 1.148,
+          "tolerance": 0.02
+        },
+        "loudness_target_i": -18.5,
+        "loudness_true_peak": -1.2,
+        "loudness_range": 8.5
+      },
+      "reference_artifacts": [
+        "https://cdn.example.com/golden/mix/latin-pop-balance.json"
+      ]
+    },
+    {
+      "name": "documentary-dual",
+      "locale": "fr-FR",
+      "settings_overrides": {},
+      "expectations": {
+        "bed_gain": {
+          "min": 0.09,
+          "max": 0.37
+        },
+        "voice_gain": {
+          "min": 0.7,
+          "max": 1.2
+        },
+        "loudness_target_i": {
+          "min": -17.5,
+          "max": -14.5
+        }
+      },
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/mix/documentary-dual.json"
+      ],
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/documentary-dual.png",
+        "metadata": {
+          "type": "spectrum_focus",
+          "dialog_band_hz": [
+            400,
+            3400
+          ]
+        }
+      }
+    }
+  ],
+  "watermark_cases": [
+    {
+      "name": "bottom-right",
+      "position": "bottom-right",
+      "expected_x": "main_w - overlay_w - 40",
+      "expected_y": "main_h - overlay_h - 40",
+      "aspect_ratio": "16:9",
+      "reference_artifacts": [
+        "s3://qa/baseline/watermark/bottom-right.png"
+      ]
+    },
+    {
+      "name": "top-left",
+      "position": "top-left",
+      "expected_x": "40",
+      "expected_y": "40",
+      "aspect_ratio": "16:9",
+      "reference_artifacts": [
+        "s3://qa/baseline/watermark/top-left.png"
+      ]
+    },
+    {
+      "name": "center-lower-third",
+      "position": "center",
+      "expected_x": "(main_w/2) - (overlay_w/2)",
+      "expected_y": "main_h - (overlay_h * 1.5)",
+      "aspect_ratio": "9:16",
+      "reference_artifacts": [
+        "s3://qa/baseline/watermark/center-lower-third.png"
+      ]
+    },
+    {
+      "name": "top-left-brand-intro",
+      "position": "top-left",
+      "expected_x": "40",
+      "expected_y": "40",
+      "aspect_ratio": "1:1",
+      "reference_artifacts": [
+        "https://cdn.viralclip.ai/qa/watermarks/top-left-brand-intro.png"
+      ],
+      "failure_overlay": {
+        "url": "https://cdn.viralclip.ai/qa/overlays/top-left-brand-intro.png",
+        "metadata": {
+          "type": "safe_zone",
+          "x": 0.04,
+          "y": 0.05,
+          "width": 0.18,
+          "height": 0.18
+        }
+      }
+    }
+  ]
+}

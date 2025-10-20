@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: viral-clip-config
+  namespace: viral-clip-ai
+  labels:
+    app.kubernetes.io/name: viral-clip-ai
+    app.kubernetes.io/component: config
+data:
+  API_V1_PREFIX: /v1
+  CORS_ORIGINS: "http://localhost:8080,https://viral-clip-ai.example"
+  S3_ENDPOINT_URL: http://minio.viral-clip-ai.svc.cluster.local:9000
+  S3_BUCKET: viral-clip-ai
+  S3_REGION: us-east-1
+  S3_SECURE: "false"
+  REDIS_URL: redis://redis.viral-clip-ai.svc.cluster.local:6379/0
+  BROKER_URL: redis://redis.viral-clip-ai.svc.cluster.local:6379/1
+  RESULT_BACKEND: redis://redis.viral-clip-ai.svc.cluster.local:6379/2
+  PROMETHEUS_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.viral-clip-ai.svc.cluster.local:4317
