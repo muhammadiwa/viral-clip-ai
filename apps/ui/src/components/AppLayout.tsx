@@ -1,6 +1,5 @@
 import { Outlet, Navigate, Link, useLocation } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
-import { OrganizationSwitcher } from './OrganizationSwitcher'
 
 export function AppLayout() {
   const { user, logout } = useAuth()
@@ -19,7 +18,6 @@ export function AppLayout() {
             Viral Clip AI
           </Link>
           <div className="flex items-center gap-4">
-            <OrganizationSwitcher />
             <div className="text-right">
               <div className="text-sm font-medium">{user.full_name ?? user.email}</div>
               <button

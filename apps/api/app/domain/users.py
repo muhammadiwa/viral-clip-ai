@@ -26,12 +26,20 @@ class UserCreate(UserBase):
     password: str = Field(
         ..., min_length=8, max_length=128, description="Raw password to be hashed"
     )
+    role: Optional[str] = Field(
+        default="viewer",
+        description="Role for team member in current organization"
+    )
 
 
 class User(UserBase):
     """Persisted user profile."""
 
     id: UUID = Field(default_factory=uuid4)
+    owned_org_id: Optional[UUID] = Field(
+        default=None,
+        description="Organization ID that this user owns (null for team members)"
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
     last_login_at: Optional[datetime] = None

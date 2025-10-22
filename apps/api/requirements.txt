@@ -1,8 +1,10 @@
 
+# API Requirements - Optimized (removed ML/media processing packages)
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
 pydantic==2.9.2
 SQLAlchemy==2.0.36
+alembic==1.13.2
 asyncpg==0.30.0
 psycopg[binary]==3.2.3
 redis==5.0.8
@@ -15,16 +17,6 @@ passlib[bcrypt]==1.7.4
 structlog==24.4.0
 midtransclient==1.4.1
 celery==5.4.0
-yt-dlp==2024.11.4
-faster-whisper==1.0.3
-whisperx==3.1.1
-torch==2.4.1
-torchaudio==2.4.1
-open-clip-torch==2.24.0
-TTS==0.22.0
-pysubs2==1.6.1
-ffmpeg-python==0.2.0
-opencv-python==4.10.0.84
 prometheus-client==0.20.0
 opentelemetry-sdk==1.27.0
 opentelemetry-exporter-otlp==1.27.0

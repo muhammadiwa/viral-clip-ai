@@ -16,7 +16,7 @@ from ..models.user import UserModel
 class UsersRepository(Protocol):
     """Persistence interface for user records."""
 
-    async def create(self, payload: UserCreate) -> User: ...
+    async def create(self, payload: UserCreate, owned_org_id: UUID | None = None) -> User: ...
 
     async def get(self, user_id: UUID) -> User | None: ...
 
@@ -37,12 +37,12 @@ class InMemoryUsersRepository:
         self._email_index: dict[str, UUID] = {}
         self._password_hashes: dict[UUID, str] = {}
 
-    async def create(self, payload: UserCreate) -> User:
+    async def create(self, payload: UserCreate, owned_org_id: UUID | None = None) -> User:
         normalized_email = payload.email.lower()
         if normalized_email in self._email_index:
             raise ValueError("user with email already exists")
-        data = payload.model_dump(exclude={"password"})
-        user = User(**data)
+        data = payload.model_dump(exclude={"password", "role"})
+        user = User(**data, owned_org_id=owned_org_id)
         self._users[user.id] = user
         self._email_index[normalized_email] = user.id
         self._password_hashes[user.id] = hash_password(payload.password)
@@ -91,12 +91,13 @@ class SqlAlchemyUsersRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def create(self, payload: UserCreate) -> User:
+    async def create(self, payload: UserCreate, owned_org_id: UUID | None = None) -> User:
         normalized_email = payload.email.lower()
         model = UserModel(
             email=normalized_email,
             full_name=payload.full_name,
             password_hash=hash_password(payload.password),
+            owned_org_id=owned_org_id,
         )
         self._session.add(model)
         try:
@@ -163,6 +164,7 @@ class SqlAlchemyUsersRepository:
             id=model.id,
             email=model.email,
             full_name=model.full_name,
+            owned_org_id=model.owned_org_id,
             created_at=model.created_at,
             updated_at=model.updated_at,
             last_login_at=model.last_login_at,

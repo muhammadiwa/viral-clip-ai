@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { useApi } from '../hooks/useApi'
-import { useOrg } from '../contexts/OrgContext'
 import { useNotifications } from '../contexts/NotificationContext'
 import type {
   MetricSummaryResponse,
@@ -13,6 +12,7 @@ import type {
   MembershipListResponse,
   UserListResponse,
   User,
+  Membership,
 } from '../types'
 import { useAuth } from '../contexts/AuthContext'
 
@@ -31,12 +31,14 @@ const FINDING_STATUS_OPTIONS = [
   { value: 'blocked', label: 'Blocked' },
   { value: 'ready_for_review', label: 'Ready for review' },
   { value: 'resolved', label: 'Resolved' },
-]
+] as const
+
+type FindingStatus = (typeof FINDING_STATUS_OPTIONS)[number]['value']
 
 const REVIEW_STATUS_OPTIONS = [
   { value: 'approved', label: 'Approved' },
   { value: 'changes_required', label: 'Changes required' },
-]
+] as const
 
 function formatPercent(value?: number | null) {
   if (value === undefined || value === null) {
@@ -88,7 +90,6 @@ function formatOverlayValue(value: unknown): string {
 }
 
 export function QAQualitySummary() {
-  const { orgId } = useOrg()
   const { request } = useApi()
   const { addNotification } = useNotifications()
   const { user } = useAuth()
@@ -102,8 +103,7 @@ export function QAQualitySummary() {
 
   const metricQueries = useQueries({
     queries: METRIC_NAMES.map((name) => ({
-      queryKey: ['qa-metric-summary', name, orgId],
-      enabled: !!orgId,
+      queryKey: ['qa-metric-summary', name],
       staleTime: 30_000,
       queryFn: () =>
         request<MetricSummaryResponse>(
@@ -113,8 +113,7 @@ export function QAQualitySummary() {
   })
 
   const qaRunsQuery = useQuery({
-    queryKey: ['qa-runs', orgId],
-    enabled: !!orgId,
+    queryKey: ['qa-runs'],
     staleTime: 30_000,
     queryFn: () =>
       request<QARunListResponse>(
@@ -130,12 +129,11 @@ export function QAQualitySummary() {
   })
 
   const membersQuery = useQuery({
-    queryKey: ['org-members', orgId],
-    enabled: !!orgId,
+    queryKey: ['org-members'],
     staleTime: 30_000,
     queryFn: () =>
       request<MembershipListResponse>(
-        `/v1/organizations/${orgId}/members?limit=200&offset=0`,
+        `/v1/users?limit=200&offset=0`,
       ),
   })
 
@@ -152,20 +150,20 @@ export function QAQualitySummary() {
 
   const usersById = useMemo(() => {
     const map: Record<string, User> = {}
-    users.forEach((entry) => {
+    for (const entry of users) {
       map[entry.id] = entry
-    })
+    }
     return map
   }, [users])
 
   const activeMembers = useMemo(
-    () => members.filter((member) => member.status === 'active'),
+    () => members.filter((member: Membership) => member.status === 'active'),
     [members],
   )
 
   const memberOptions = useMemo(
     () =>
-      activeMembers.map((member) => {
+      activeMembers.map((member: Membership) => {
         const userRecord = usersById[member.user_id]
         const label = userRecord?.full_name || userRecord?.email || member.user_id
         return {
@@ -177,20 +175,21 @@ export function QAQualitySummary() {
   )
 
   const canSelfAssign = useMemo(
-    () => !!user && activeMembers.some((member) => member.user_id === user.id),
+    () => !!user && activeMembers.some((member: Membership) => member.user_id === user.id),
     [activeMembers, user],
   )
 
   const metricsByName = useMemo(() => {
     const result: Record<string, number | null | undefined> = {}
-    metricQueries.forEach((query, index) => {
+    for (let index = 0; index < metricQueries.length; index++) {
+      const query = metricQueries[index]
       const name = METRIC_NAMES[index]
       if (query.data) {
         result[name] = query.data.data.average ?? query.data.data.p50
       } else if (query.isError) {
         result[name] = null
       }
-    })
+    }
     return result
   }, [metricQueries])
 
@@ -252,7 +251,7 @@ export function QAQualitySummary() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['qa-run', selectedRunId] })
-      queryClient.invalidateQueries({ queryKey: ['qa-runs', orgId] })
+      queryClient.invalidateQueries({ queryKey: ['qa-runs'] })
       addNotification({
         title: 'Finding updated',
         message: 'Status saved for this regression finding.',
@@ -281,7 +280,7 @@ export function QAQualitySummary() {
     onSuccess: () => {
       setReviewNotes('')
       queryClient.invalidateQueries({ queryKey: ['qa-run', selectedRunId] })
-      queryClient.invalidateQueries({ queryKey: ['qa-runs', orgId] })
+      queryClient.invalidateQueries({ queryKey: ['qa-runs'] })
       addNotification({
         title: 'QA review recorded',
         message: 'Creative approval has been captured for this run.',
@@ -316,9 +315,9 @@ export function QAQualitySummary() {
       return
     }
     const next: Record<string, string | null> = {}
-    runDetail.findings.forEach((finding) => {
+    for (const finding of runDetail.findings) {
       next[finding.id] = finding.assignee_id ?? null
-    })
+    }
     setAssignmentDrafts(next)
   }, [runDetail])
 
@@ -505,10 +504,7 @@ export function QAQualitySummary() {
                         assigneeUser?.full_name ||
                         assigneeUser?.email ||
                         (currentAssigneeId ? 'Pending member assignment' : 'Unassigned')
-                      const hasDueDateDraft = Object.prototype.hasOwnProperty.call(
-                        dueDateDrafts,
-                        finding.id,
-                      )
+                      const hasDueDateDraft = finding.id in dueDateDrafts
                       const dueDateInput = hasDueDateDraft
                         ? dueDateDrafts[finding.id] ?? ''
                         : toDateTimeLocalInput(finding.due_date ?? null)
@@ -518,9 +514,7 @@ export function QAQualitySummary() {
                       const dueDateLabel = finding.due_date
                         ? formatDateTime(finding.due_date)
                         : 'Unscheduled'
-                      const overlayEntries = Object.entries(
-                        (finding.overlay_metadata as Record<string, unknown> | undefined) ?? {},
-                      )
+                      const overlayEntries = Object.entries(finding.overlay_metadata ?? {})
 
                       return (
                         <li
@@ -551,15 +545,16 @@ export function QAQualitySummary() {
                                 </span>
                                 <select
                                   value={finding.status}
-                                  onChange={(event) =>
+                                  onChange={(event) => {
+                                    const newStatus = event.target.value as FindingStatus
                                     updateFindingMutation.mutate({
                                       findingId: finding.id,
-                                      status: event.target.value as (typeof FINDING_STATUS_OPTIONS)[number]['value'],
+                                      status: newStatus,
                                       notes: findingNotes[finding.id] ?? finding.notes ?? '',
                                       assigneeId: currentAssigneeId,
                                       dueDate: dueDateIso,
                                     })
-                                  }
+                                  }}
                                   className="rounded-md border border-white/10 bg-slate-950 px-2 py-1"
                                 >
                                   {FINDING_STATUS_OPTIONS.map((option) => (
@@ -579,13 +574,13 @@ export function QAQualitySummary() {
                                     const value = event.target.value
                                     setAssignmentDrafts((current) => ({
                                       ...current,
-                                      [finding.id]: value ? value : null,
+                                      [finding.id]: value || null,
                                     }))
                                     updateFindingMutation.mutate({
                                       findingId: finding.id,
                                       status: finding.status,
                                       notes: findingNotes[finding.id] ?? finding.notes ?? '',
-                                      assigneeId: value ? value : null,
+                                      assigneeId: value || null,
                                       dueDate: dueDateIso,
                                     })
                                   }}
@@ -593,7 +588,7 @@ export function QAQualitySummary() {
                                   disabled={assignmentLoading}
                                 >
                                   <option value="">Unassigned</option>
-                                  {memberOptions.map((option) => (
+                                  {memberOptions.map((option: { value: string; label: string }) => (
                                     <option key={option.value} value={option.value}>
                                       {option.label}
                                     </option>

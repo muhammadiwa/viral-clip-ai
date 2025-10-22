@@ -1,5 +1,6 @@
 import { Navigate, Outlet, Route, Routes } from 'react-router-dom'
 import LoginPage from './pages/Login'
+import RegisterPage from './pages/Register'
 import DashboardPage from './pages/Dashboard'
 import ProjectPage from './pages/Project'
 import { AppLayout } from './components/AppLayout'
@@ -21,6 +22,7 @@ export function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={<RegisterPage />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppLayout />}>
           <Route path="/dashboard" element={<DashboardPage />} />

@@ -3,7 +3,6 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { API_BASE_URL } from '../lib/api'
 import type { Job, JobListResponse } from '../types'
-import { useOrg } from '../contexts/OrgContext'
 import { useAuth } from '../contexts/AuthContext'
 import { useNotifications } from '../contexts/NotificationContext'
 
@@ -14,10 +13,9 @@ type JobEventPayload = {
   data: Job
 }
 
-function buildWebSocketUrl(path: string, orgId: string, token: string | null) {
+function buildWebSocketUrl(path: string, token: string | null) {
   const url = new URL(path, API_BASE_URL)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-  url.searchParams.set('org_id', orgId)
   if (token) {
     url.searchParams.set('token', token)
   }
@@ -25,7 +23,6 @@ function buildWebSocketUrl(path: string, orgId: string, token: string | null) {
 }
 
 export function useJobEvents(projectId: string | undefined, jobs: Job[]) {
-  const { orgId } = useOrg()
   const { token } = useAuth()
   const queryClient = useQueryClient()
   const socketsRef = useRef<Map<string, WebSocket>>(new Map())
@@ -34,7 +31,7 @@ export function useJobEvents(projectId: string | undefined, jobs: Job[]) {
 
   useEffect(() => {
     const sockets = socketsRef.current
-    if (!projectId || !orgId || !token) {
+    if (!projectId || !token) {
       for (const socket of sockets.values()) {
         socket.close()
       }
@@ -65,7 +62,7 @@ export function useJobEvents(projectId: string | undefined, jobs: Job[]) {
         continue
       }
       const socket = new WebSocket(
-        buildWebSocketUrl(`/v1/jobs/${job.id}/events`, orgId, token)
+        buildWebSocketUrl(`/v1/jobs/${job.id}/events`, token)
       )
       socket.onmessage = (event) => {
         try {
@@ -141,7 +138,7 @@ export function useJobEvents(projectId: string | undefined, jobs: Job[]) {
       }
       sockets.set(job.id, socket)
     }
-  }, [jobs, orgId, token, projectId, queryClient, addNotification])
+  }, [jobs, token, projectId, queryClient, addNotification])
 
   useEffect(() => {
     return () => {

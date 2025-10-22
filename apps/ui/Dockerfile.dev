@@ -1,0 +1,35 @@
+# Development UI Dockerfile - Optimized for hot reload
+FROM node:20-alpine AS base
+WORKDIR /app
+
+# Copy package files
+COPY apps/ui/package.json apps/ui/package-lock.json* ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source code
+COPY apps/ui/tsconfig.json apps/ui/vite.config.ts ./
+COPY apps/ui/tailwind.config.ts apps/ui/postcss.config.js ./
+COPY apps/ui/index.html ./
+COPY apps/ui/src ./src
+
+# Development stage - with hot reload
+FROM base AS development
+EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+
+# Build stage
+FROM base AS build
+RUN npm run build
+
+# Production stage
+FROM nginx:1.27-alpine AS production
+RUN apk add --no-cache curl
+COPY --from=build /app/dist /usr/share/nginx/html
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD curl -f http://localhost:80 || exit 1
+
+EXPOSE 80

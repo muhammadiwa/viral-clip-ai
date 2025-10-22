@@ -1,14 +1,12 @@
 import { FormEvent, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../hooks/useApi'
-import { useOrg } from '../contexts/OrgContext'
 import { ProjectList } from '../components/ProjectList'
 import { BillingSummary } from '../components/BillingSummary'
 import { QAQualitySummary } from '../components/QAQualitySummary'
 import type { ProjectListResponse, ProjectResponse } from '../types'
 
 export default function DashboardPage() {
-  const { orgId } = useOrg()
   const { request } = useApi()
   const queryClient = useQueryClient()
   const [showForm, setShowForm] = useState(false)
@@ -18,8 +16,7 @@ export default function DashboardPage() {
   const [error, setError] = useState<string | null>(null)
 
   const projectsQuery = useQuery({
-    queryKey: ['projects', orgId],
-    enabled: !!orgId,
+    queryKey: ['projects'],
     queryFn: () => request<ProjectListResponse>('/v1/projects'),
   })
 
@@ -34,7 +31,7 @@ export default function DashboardPage() {
         },
       }),
     onSuccess: async () => {
-      await queryClient.invalidateQueries({ queryKey: ['projects', orgId] })
+      await queryClient.invalidateQueries({ queryKey: ['projects'] })
       setShowForm(false)
       setName('')
       setDescription('')
@@ -53,10 +50,6 @@ export default function DashboardPage() {
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault()
     createProject.mutate()
-  }
-
-  if (!orgId) {
-    return <p className="text-sm text-slate-400">Select an organization to view its projects.</p>
   }
 
   return (

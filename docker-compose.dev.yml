@@ -1,0 +1,353 @@
+version: "3.9"
+
+services:
+  # Database Services
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata_dev:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - viral-clip-network
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata_dev:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - viral-clip-network
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata_dev:/data
+    networks:
+      - viral-clip-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # Application Services
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    env_file: .env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DEBUG=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mount source code for development hot reload
+      - ./apps/api/app:/app/app:ro
+      # Mount uploads directory for development
+      - ./uploads:/app/uploads
+    networks:
+      - viral-clip-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  ui:
+    build:
+      context: .
+      dockerfile: apps/ui/Dockerfile.dev
+      target: development
+    ports:
+      - "3000:5173"
+    volumes:
+      # Mount source for hot reload in development
+      - ./apps/ui/src:/app/src:ro
+      - ./apps/ui/public:/app/public:ro
+      - ./apps/ui/index.html:/app/index.html:ro
+      - ./apps/ui/vite.config.ts:/app/vite.config.ts:ro
+      - ./apps/ui/tailwind.config.ts:/app/tailwind.config.ts:ro
+      - ./apps/ui/postcss.config.js:/app/postcss.config.js:ro
+    depends_on:
+      - api
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  # All Workers for complete development environment
+  worker-ingest:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "ingest", "-n", "ingest@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-transcode:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "transcode", "-n", "transcode@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-asr:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "asr", "-n", "asr@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-nlp:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "nlp", "-n", "nlp@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-subtitle:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "subtitle", "-n", "subtitle@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-tts:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "tts", "-n", "tts@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-render:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "render", "-n", "render@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-retell:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "retell", "-n", "retell@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-export:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "export", "-n", "export@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  worker-billing:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "billing", "-n", "billing@%h", "--concurrency=1", "--loglevel=debug"]
+    depends_on: 
+      - api
+      - redis
+      - minio
+    volumes:
+      - ./apps/workers/workers:/app/workers:ro
+      - ./uploads:/app/uploads
+      - ./models:/app/models
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - ui
+    networks:
+      - viral-clip-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Development Tools
+  adminer:
+    image: adminer:4.8.1
+    ports:
+      - "8080:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: postgres
+    depends_on:
+      - postgres
+    networks:
+      - viral-clip-network
+
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    networks:
+      - viral-clip-network
+
+  # Celery Flower for monitoring workers
+  flower:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile.dev
+    env_file: .env
+    command: ["celery", "-A", "workers.start:celery_app", "flower", "--port=5555", "--broker_api=http://guest:guest@redis:6379//"]
+    ports:
+      - "5555:5555"
+    depends_on:
+      - redis
+      - api
+    networks:
+      - viral-clip-network
+    restart: unless-stopped
+
+volumes:
+  pgdata_dev:
+  redisdata_dev:
+  miniodata_dev:
+  models_dev:
+
+networks:
+  viral-clip-network:
+    driver: bridge

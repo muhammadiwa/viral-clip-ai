@@ -2,7 +2,6 @@ import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useApi } from '../hooks/useApi'
 import { useJobEvents } from '../hooks/useJobEvents'
-import { useOrg } from '../contexts/OrgContext'
 import { VideoIngestForm } from '../components/VideoIngestForm'
 import { VideoList } from '../components/VideoList'
 import { JobTable } from '../components/JobTable'
@@ -12,26 +11,25 @@ import type { JobListResponse, ProjectResponse, VideoListResponse } from '../typ
 
 export default function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
-  const { orgId } = useOrg()
   const { request } = useApi()
   const { addNotification } = useNotifications()
   const queryClient = useQueryClient()
 
   const projectQuery = useQuery({
-    queryKey: ['project', projectId, orgId],
-    enabled: !!projectId && !!orgId,
+    queryKey: ['project', projectId],
+    enabled: !!projectId,
     queryFn: () => request<ProjectResponse>(`/v1/projects/${projectId}`),
   })
 
   const videosQuery = useQuery({
     queryKey: ['videos', projectId],
-    enabled: !!projectId && !!orgId,
+    enabled: !!projectId,
     queryFn: () => request<VideoListResponse>(`/v1/projects/${projectId}/videos`),
   })
 
   const jobsQuery = useQuery({
     queryKey: ['jobs', projectId],
-    enabled: !!projectId && !!orgId,
+    enabled: !!projectId,
     queryFn: () => request<JobListResponse>(`/v1/jobs/projects/${projectId}`),
   })
 
@@ -41,15 +39,15 @@ export default function ProjectPage() {
         method: 'PATCH',
         body: { brand_kit_id: brandKitId },
       }),
-    onSuccess: (response, brandKitId) => {
+    onSuccess: (response) => {
       queryClient.setQueryData<ProjectResponse | undefined>(
-        ['project', projectId, orgId],
+        ['project', projectId],
         response,
       )
       queryClient.invalidateQueries({ queryKey: ['projects'], exact: false })
       addNotification({
         title: 'Project branding updated',
-        message: brandKitId ? 'Brand kit applied to all downstream renders.' : 'Brand kit unassigned.',
+        message: response.data.brand_kit_id ? 'Brand kit applied to all downstream renders.' : 'Brand kit unassigned.',
         tone: 'success',
       })
     },
@@ -64,10 +62,6 @@ export default function ProjectPage() {
 
   if (!projectId) {
     return <p className="text-sm text-slate-400">Missing project identifier.</p>
-  }
-
-  if (!orgId) {
-    return <p className="text-sm text-slate-400">Select an organization to continue.</p>
   }
 
   if (projectQuery.isLoading) {

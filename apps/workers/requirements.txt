@@ -1,5 +1,7 @@
 
+# Workers Requirements - Complete (all ML/media processing packages)
 celery==5.4.0
+flower==2.0.1
 redis==5.0.8
 boto3==1.35.41
 minio==7.2.9

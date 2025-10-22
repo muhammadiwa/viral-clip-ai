@@ -1,0 +1,40 @@
+# Development Workers Dockerfile - Complete ML stack
+FROM python:3.11-slim
+
+# Install system dependencies including ffmpeg for media processing
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    curl \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy requirements first for better Docker layer caching
+COPY apps/workers/requirements.txt /app/requirements.txt
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r /app/requirements.txt
+
+# Copy application code
+COPY apps/workers /app
+
+# Set environment variables for development
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV DEBUG=true
+
+# Create directories for models and cache
+RUN mkdir -p /app/models /app/cache
+
+# Expose metrics port
+EXPOSE 9464
+
+# Health check for Celery workers
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=3 \
+    CMD celery -A workers.start:celery_app inspect ping || exit 1
+
+# Default command - will be overridden in docker-compose
+CMD ["bash", "-c", "echo 'Specify Celery command in docker-compose.yml' && sleep infinity"]

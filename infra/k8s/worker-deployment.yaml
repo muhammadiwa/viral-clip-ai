@@ -19,6 +19,13 @@ spec:
         - name: celery-worker
           image: ghcr.io/viral-clip-ai/workers:latest
           imagePullPolicy: IfNotPresent
+          resources:
+            requests:
+              cpu: 1000m
+              memory: 2Gi
+            limits:
+              cpu: 4000m
+              memory: 8Gi
           command: ["celery"]
           args:
             - "-A"
@@ -28,6 +35,8 @@ spec:
             - "ingest,transcode,asr,nlp,subtitle,tts,render,retell,export"
             - "-n"
             - "celery@%h"
+            - "--concurrency=2"
+            - "--prefetch-multiplier=1"
           envFrom:
             - configMapRef:
                 name: viral-clip-config
@@ -38,16 +47,22 @@ spec:
               value: http://api.viral-clip-ai.svc.cluster.local:8000
             - name: WORKER_PROMETHEUS_PORT
               value: "9464"
+            - name: PYTHONUNBUFFERED
+              value: "1"
           ports:
             - containerPort: 9464
               name: metrics
           readinessProbe:
             exec:
               command: ["bash", "-c", "celery -A workers.start:celery_app inspect ping"]
-            initialDelaySeconds: 20
+            initialDelaySeconds: 30
             periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
           livenessProbe:
             exec:
               command: ["bash", "-c", "celery -A workers.start:celery_app inspect ping"]
             initialDelaySeconds: 60
             periodSeconds: 120
+            timeoutSeconds: 10
+            failureThreshold: 5

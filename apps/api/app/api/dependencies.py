@@ -267,10 +267,32 @@ async def get_task_dispatcher() -> TaskDispatcher:
 
 
 async def get_org_id(
+    credentials: HTTPAuthorizationCredentials | None = Depends(_http_bearer),
     x_org_id: str | None = Header(default=None, alias="X-Org-ID"),
     orgs_repo: OrganizationsRepository = Depends(get_organizations_repository),
 ) -> UUID:
-    org_id = _resolve_org_id(x_org_id)
+    """
+    Get organization ID from JWT token (primary) or X-Org-ID header (fallback).
+    New flow: org_id is embedded in JWT token after login/register.
+    """
+    org_id_value: str | None = None
+    
+    # Try to get org_id from JWT token first
+    if credentials:
+        try:
+            payload = decode_access_token(credentials.credentials)
+            org_id_value = payload.get("org_id")
+        except JWTError:
+            pass  # Will try header fallback
+    
+    # Fallback to X-Org-ID header (for backward compatibility)
+    if not org_id_value:
+        org_id_value = x_org_id
+    
+    # Final fallback to default org ID from settings
+    org_id = _resolve_org_id(org_id_value)
+    
+    # Validate organization exists
     org = await orgs_repo.get(org_id)
     if org is None:
         raise HTTPException(

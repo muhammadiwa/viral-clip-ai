@@ -1,27 +1,19 @@
 import { useQuery } from '@tanstack/react-query'
 import { useApi } from '../hooks/useApi'
-import { useOrg } from '../contexts/OrgContext'
 import type { SubscriptionResponse, UsageResponse } from '../types'
 
 export function BillingSummary() {
-  const { orgId } = useOrg()
   const { request } = useApi()
 
   const subscriptionQuery = useQuery({
-    queryKey: ['billing', 'subscription', orgId],
-    enabled: !!orgId,
+    queryKey: ['billing', 'subscription'],
     queryFn: () => request<SubscriptionResponse>('/v1/billing/subscription'),
   })
 
   const usageQuery = useQuery({
-    queryKey: ['billing', 'usage', orgId],
-    enabled: !!orgId,
+    queryKey: ['billing', 'usage'],
     queryFn: () => request<UsageResponse>('/v1/billing/usage'),
   })
-
-  if (!orgId) {
-    return null
-  }
 
   if (subscriptionQuery.isLoading || usageQuery.isLoading) {
     return (

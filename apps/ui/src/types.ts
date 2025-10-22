@@ -11,6 +11,7 @@ export interface User {
   id: string
   email: string
   full_name?: string | null
+  owned_org_id?: string | null
   created_at: string
   updated_at: string
   last_login_at?: string | null
@@ -188,6 +189,40 @@ export interface TokenResponse {
   token_type: string
   expires_in: number
   user: User
+}
+
+export interface Membership {
+  id: string
+  org_id: string
+  user_id: string
+  role: string
+  status: string
+  invited_by_user_id?: string | null
+  invited_at: string
+  joined_at?: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MembershipListResponse {
+  data: Membership[]
+  count: number
+  pagination: PaginationMeta
+}
+
+export interface UserListResponse {
+  data: User[]
+  count: number
+  pagination: PaginationMeta
+}
+
+export interface RegisterResponse {
+  access_token: string
+  token_type: string
+  expires_in: number
+  user: User
+  organization: Organization
+  membership: Membership
 }
 
 export interface Clip {
