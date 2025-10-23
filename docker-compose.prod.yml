@@ -1,0 +1,212 @@
+services:
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      minio:
+        condition: service_started
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  ui:
+    build:
+      context: .
+      dockerfile: apps/ui/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  worker-ingest:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "ingest", "-n", "ingest@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-transcode:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "transcode", "-n", "transcode@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-asr:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "asr", "-n", "asr@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-nlp:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "nlp", "-n", "nlp@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-subtitle:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "subtitle", "-n", "subtitle@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-tts:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "tts", "-n", "tts@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-render:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "render", "-n", "render@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-retell:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "retell", "-n", "retell@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-export:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "export", "-n", "export@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  worker-billing:
+    build:
+      context: .
+      dockerfile: apps/workers/Dockerfile
+    restart: unless-stopped
+    env_file: .env.production
+    command: ["celery", "-A", "workers.start:celery_app", "worker", "-Q", "billing", "-n", "billing@%h"]
+    depends_on:
+      - api
+      - redis
+      - minio
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - ui
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  pgdata: {}
+  redisdata: {}
+  miniodata: {}

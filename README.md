@@ -10,15 +10,25 @@ This is a **production-ready template** to build the Viral Clip AI Generator:
 
 ## Quickstart
 ```bash
-cp .env.example .env
-docker compose -f infra/docker/compose.yml up -d --build
+make dev-setup     # copies .env.development -> .env
+make dev-up        # builds & starts docker-compose.dev.yml
 
-# Open: http://localhost:8080  (UI via Nginx)
-# API:  http://localhost:8080/api/healthz
-# MinIO console: http://localhost:9001  (user/pass from .env)
+# UI via nginx proxy: http://localhost:8080
+# API direct:        http://localhost:8080/api/healthz
+# MinIO console:     http://localhost:9001  (credentials in .env)
 ```
 
-> For local dev (without Docker), see docs and each app's README.
+Stop services with `make dev-down` (containers only) or `make dev-clean` (containers + volumes). Use `make dev-logs` to tail logs across services.
+
+Deploying the production compose stack:
+
+```bash
+make prod-setup    # copies .env.production.sample -> .env.production
+$EDITOR .env.production  # fill in secrets safely
+make prod-up       # uses docker-compose.prod.yml
+```
+
+See `docs/ENVIRONMENT.md` and `DEPLOYMENT-GUIDE.md` for full environment configuration, Kubernetes instructions, and best practices.
 
 ## Media QA Regression Checks & Creative Reviews
 

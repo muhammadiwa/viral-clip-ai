@@ -15,24 +15,26 @@ This guide provides step-by-step instructions for deploying Viral Clip AI to pro
 ### 1. Environment Setup
 
 ```bash
-# Copy environment template
-cp .env.template .env
+# Generate base files
+make dev-setup       # creates .env from .env.development
+make prod-setup      # creates .env.production from .env.production.sample
 
 # Edit environment variables
-nano .env
+nano .env            # development overrides
+nano .env.production # production secrets (keep outside version control)
 ```
 
 ### 2. Docker Compose Deployment (Development/Testing)
 
 ```bash
-# Start all services
-make up
+# Start all services (builds if needed)
+make dev-up
 
 # Check logs
-make logs
+make dev-logs
 
 # Stop services
-make down
+make dev-down        # or make dev-clean to remove volumes
 ```
 
 ### 3. Kubernetes Production Deployment
