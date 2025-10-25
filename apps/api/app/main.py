@@ -26,7 +26,14 @@ from .telemetry import configure_tracing, setup_prometheus
 
 def create_app() -> FastAPI:
     settings = get_settings()
-    app = FastAPI(title=settings.project_name, version="0.1.0")
+    app = FastAPI(
+        title=settings.project_name,
+        version="0.1.0",
+        root_path="/api",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json"
+    )
 
     # Set CORS origins from settings, use fallback if configured
     allow_origins = settings.cors_origins
