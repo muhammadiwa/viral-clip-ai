@@ -46,7 +46,16 @@ class SqlAlchemyIdempotencyRepository(IdempotencyRepository):
         model = result.scalar_one_or_none()
         if not model:
             return None
-        return IdempotencyRecord.model_validate(model)
+        return IdempotencyRecord(
+            id=model.id,
+            org_id=model.org_id,
+            key=model.key,
+            method=model.method,
+            path=model.path,
+            status_code=model.status_code,
+            payload=model.payload,
+            created_at=model.created_at,
+        )
 
     async def save(self, record: IdempotencyRecord) -> IdempotencyRecord:
         result = await self._session.execute(
@@ -73,5 +82,14 @@ class SqlAlchemyIdempotencyRepository(IdempotencyRepository):
             model.status_code = record.status_code
             model.payload = record.payload
         await self._session.commit()
-        return IdempotencyRecord.model_validate(model)
+        return IdempotencyRecord(
+            id=model.id,
+            org_id=model.org_id,
+            key=model.key,
+            method=model.method,
+            path=model.path,
+            status_code=model.status_code,
+            payload=model.payload,
+            created_at=model.created_at,
+        )
 
