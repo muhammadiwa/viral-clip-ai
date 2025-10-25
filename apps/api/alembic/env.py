@@ -12,7 +12,6 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db.session import Base
-from app.core.config import get_settings
 
 # Import all models so Alembic can detect them
 from app.models.user import UserModel
@@ -22,14 +21,15 @@ from app.models.video import VideoModel
 from app.models.clip import ClipModel
 from app.models.retell import RetellModel
 from app.models.job import JobModel
-from app.models.transcript import TranscriptModel, TranscriptSegmentModel
+from app.models.transcript import TranscriptModel
 from app.models.artifact import ArtifactModel
 from app.models.billing import SubscriptionModel, UsageModel, PaymentTransactionModel
 from app.models.branding import BrandKitModel, BrandAssetModel
 from app.models.audit import AuditLogModel
 from app.models.dmca import DmcaNoticeModel
 from app.models.idempotency import IdempotencyRecordModel
-from app.models.observability import ObservabilityMetricModel, QARunModel, QAFindingModel, QAReviewModel
+from app.models.observability import MetricModel
+from app.models.qa import QARunModel, QAFindingModel, QAReviewModel
 from app.models.webhook import WebhookEndpointModel, WebhookDeliveryModel
 
 # this is the Alembic Config object, which provides
@@ -45,9 +45,13 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 target_metadata = Base.metadata
 
-# Get database URL from settings
-settings = get_settings()
-db_url = f"postgresql://{settings.db_user}:{settings.db_password}@{settings.db_host}:{settings.db_port}/{settings.db_name}"
+# Get database URL from PostgreSQL environment variables (same as docker-compose)
+db_user = os.getenv('POSTGRES_USER', 'postgres')
+db_password = os.getenv('POSTGRES_PASSWORD', 'postgres')
+db_host = os.getenv('DB_HOST', 'postgres')
+db_port = os.getenv('DB_PORT', '5432')
+db_name = os.getenv('POSTGRES_DB', 'viralclip')
+db_url = f"postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
 config.set_main_option("sqlalchemy.url", db_url)
 
 
