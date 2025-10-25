@@ -1,26 +1,28 @@
 
-# API Requirements - Optimized (removed ML/media processing packages)
+# API Requirements - FastAPI and API-specific packages
+# Base requirements (shared with workers) are in requirements-base.txt
+
+# Include base requirements
+-r requirements-base.txt
+
+# FastAPI & Web Server
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-pydantic==2.9.2
 pydantic-settings==2.5.2
 email-validator==2.2.0
-SQLAlchemy==2.0.36
+python-multipart==0.0.9
+
+# Database Migrations
 alembic==1.13.2
-asyncpg==0.30.0
 psycopg2-binary==2.9.9
 psycopg[binary]==3.2.3
-redis==5.0.8
-boto3==1.35.41
-minio==7.2.9
-python-multipart==0.0.9
-httpx==0.27.2
+
+# Authentication
 python-jose==3.3.0
 passlib[bcrypt]==1.7.4
-structlog==24.4.0
+
+# Payment Gateway
 midtransclient==1.4.1
-celery==5.4.0
-prometheus-client==0.20.0
-opentelemetry-sdk==1.27.0
-opentelemetry-exporter-otlp==1.27.0
+
+# Observability (API-specific)
 opentelemetry-instrumentation-fastapi==0.48b0

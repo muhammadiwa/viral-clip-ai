@@ -1,30 +1,44 @@
 
-# Workers Requirements - Complete (all ML/media processing packages)
-celery==5.4.0
+# Workers Requirements - ML/Media Processing packages
+# Base requirements (shared with API) are in requirements-base.txt
+
+# Include base requirements
+-r requirements-base.txt
+
+# Celery Monitoring
 flower==2.0.1
-redis==5.0.8
-boto3==1.35.41
-minio==7.2.9
-structlog==24.4.0
+
+# Video/Audio Processing
 ffmpeg-python==0.2.0
 yt-dlp==2024.11.4
-httpx==0.27.2
-SQLAlchemy==2.0.36
-asyncpg==0.30.0
-pydantic==2.9.2
+
+# ML/AI Models - ASR (Automatic Speech Recognition)
 faster-whisper==1.0.3
 whisperx==3.1.1
+
+# ML/AI Models - PyTorch
 torch==2.4.1
 torchaudio==2.4.1
+
+# ML/AI Models - Vision (CLIP)
 open-clip-torch==2.24.0
-numpy==1.26.4
-pillow==10.4.0
-pysubs2==1.6.1
+
+# ML/AI Models - TTS (Text-to-Speech)
 TTS==0.22.0
+
+# Computer Vision & Media
 opencv-python==4.10.0.84
-soundfile==0.12.1
+pillow==10.4.0
+
+# Scientific Computing
+numpy==1.26.4
 scipy==1.13.1
-prometheus-client==0.20.0
-opentelemetry-sdk==1.27.0
-opentelemetry-exporter-otlp==1.27.0
+
+# Audio Processing
+soundfile==0.12.1
+
+# Subtitle Handling
+pysubs2==1.6.1
+
+# Observability (Workers-specific instrumentation)
 opentelemetry-instrumentation-celery==0.48b0

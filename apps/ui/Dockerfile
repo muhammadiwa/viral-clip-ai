@@ -2,6 +2,11 @@
 # Build stage
 FROM node:20-alpine AS build
 WORKDIR /app
+
+# Accept build-time environment variables
+ARG VITE_API_BASE_URL
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
+
 COPY apps/ui/package.json apps/ui/package-lock.json* apps/ui/tsconfig.json apps/ui/vite.config.ts ./
 COPY apps/ui/tailwind.config.ts apps/ui/postcss.config.js ./
 COPY apps/ui/index.html ./

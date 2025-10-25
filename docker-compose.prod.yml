@@ -59,6 +59,8 @@ services:
     build:
       context: .
       dockerfile: apps/ui/Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL}
     restart: unless-stopped
     depends_on:
       - api
