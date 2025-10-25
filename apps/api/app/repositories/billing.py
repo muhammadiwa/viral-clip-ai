@@ -349,7 +349,7 @@ class SqlAlchemyBillingRepository(BillingRepository):
         model.customer_name = transaction.customer_name
         model.customer_phone = transaction.customer_phone
         model.fraud_status = transaction.fraud_status
-        model.metadata = transaction.metadata
+        model.meta_data = transaction.metadata
         model.updated_at = datetime.utcnow()
         await self._session.commit()
         await self._session.refresh(model)

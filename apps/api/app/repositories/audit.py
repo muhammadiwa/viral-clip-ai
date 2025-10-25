@@ -127,7 +127,7 @@ class SqlAlchemyAuditLogsRepository(AuditLogsRepository):
             target_id=payload.target_id,
             target_display_name=payload.target_display_name,
             message=payload.message,
-            metadata=payload.metadata,
+            meta_data=payload.metadata,
         )
         self._session.add(model)
         await self._session.flush()

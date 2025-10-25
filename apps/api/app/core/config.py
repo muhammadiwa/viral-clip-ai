@@ -2,7 +2,8 @@ from functools import lru_cache
 from secrets import token_urlsafe
 from typing import List
 
-from pydantic import AnyHttpUrl, BaseSettings, Field
+from pydantic import AnyHttpUrl, Field
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):

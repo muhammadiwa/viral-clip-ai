@@ -33,7 +33,7 @@ class RetellModel(Base):
     summary: Mapped[str | None] = mapped_column(String(4096), nullable=True)
     outline: Mapped[list | None] = mapped_column(JSON, nullable=True)
     script: Mapped[str | None] = mapped_column(String(16384), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    meta_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=datetime.utcnow, nullable=False
     )

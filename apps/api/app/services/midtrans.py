@@ -123,7 +123,7 @@ class MidtransGateway:
             customer_email=payload.customer_email,
             customer_name=payload.customer_name,
             customer_phone=payload.customer_phone,
-            metadata=payload.metadata,
+            meta_data=payload.metadata,
         )
 
     async def refresh_transaction(

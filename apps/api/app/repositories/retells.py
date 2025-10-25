@@ -162,7 +162,7 @@ class SqlAlchemyRetellsRepository:
             job_id=job_id,
             status=RetellStatus.QUEUED.value,
             status_message=payload.status_message,
-            metadata=payload.metadata,
+            meta_data=payload.metadata,
         )
         self._session.add(model)
         await self._session.flush()

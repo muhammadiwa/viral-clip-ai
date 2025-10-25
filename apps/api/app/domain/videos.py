@@ -107,7 +107,7 @@ class VideoResponse(BaseModel):
 class VideoIngestResponse(BaseModel):
     video: Video
     job: Job
-    upload: "VideoUploadCredentials" | None = None
+    upload: Optional["VideoUploadCredentials"] = None
 
 
 class VideoListResponse(BaseModel):

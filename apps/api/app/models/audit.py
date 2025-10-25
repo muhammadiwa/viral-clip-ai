@@ -35,7 +35,7 @@ class AuditLogModel(Base):
         String(160), nullable=True
     )
     message: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    meta_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=datetime.utcnow, nullable=False
     )

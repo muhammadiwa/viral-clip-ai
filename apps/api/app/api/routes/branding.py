@@ -184,6 +184,7 @@ async def list_brand_assets(
 @router.delete(
     "/brand-kits/{brand_kit_id}/assets/{asset_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_model=None,
     dependencies=[Depends(require_org_role(MembershipRole.OWNER, MembershipRole.ADMIN))],
 )
 async def delete_brand_asset(

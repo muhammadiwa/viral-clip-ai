@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import time
 from typing import Dict
@@ -14,8 +15,6 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import Counter, Histogram, start_http_server
-
-from apps.api.app.core.config import get_settings
 
 TASK_COUNTER = Counter(
     "viral_clip_celery_tasks_total",
@@ -41,26 +40,31 @@ def configure_worker_telemetry(app: Celery) -> None:
     if _instrumented:
         return
 
-    settings = get_settings()
+    # Read config from environment
+    worker_prometheus_port = os.getenv("WORKER_PROMETHEUS_PORT")
+    worker_prometheus_host = os.getenv("WORKER_PROMETHEUS_HOST", "0.0.0.0")
+    otel_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    otel_headers = os.getenv("OTEL_EXPORTER_OTLP_HEADERS")
+    otel_service_name = os.getenv("OTEL_SERVICE_NAME", "viral-clip-workers")
 
-    if settings.worker_prometheus_port is not None:
+    if worker_prometheus_port:
         start_http_server(
-            port=settings.worker_prometheus_port,
-            addr=settings.worker_prometheus_host,
+            port=int(worker_prometheus_port),
+            addr=worker_prometheus_host,
         )
 
-    if settings.otel_exporter_otlp_endpoint:
+    if otel_endpoint:
         resource = Resource.create(
             {
-                "service.name": settings.otel_service_name or "viral-clip-workers",
+                "service.name": otel_service_name,
                 "service.namespace": "viral-clip",
                 "service.version": "0.1.0",
             }
         )
         provider = TracerProvider(resource=resource)
         exporter = OTLPSpanExporter(
-            endpoint=settings.otel_exporter_otlp_endpoint,
-            headers=_parse_headers(settings.otel_exporter_otlp_headers),
+            endpoint=otel_endpoint,
+            headers=_parse_headers(otel_headers),
         )
         provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)

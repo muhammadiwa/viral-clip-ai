@@ -94,7 +94,7 @@ class PaymentTransactionModel(Base):
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
     fraud_status: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    meta_data: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=False), default=datetime.utcnow, nullable=False
     )
