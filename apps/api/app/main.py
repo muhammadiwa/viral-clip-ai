@@ -28,13 +28,18 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(title=settings.project_name, version="0.1.0")
 
-    allow_origins = settings.cors_origins or ["*"]
+    # Set CORS origins from settings, use fallback if configured
+    allow_origins = settings.cors_origins
+    if not allow_origins and settings.cors_fallback_origins:
+        allow_origins = settings.cors_fallback_origins
+    
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[str(origin) for origin in allow_origins],
         allow_credentials=True,
-        allow_methods=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
         allow_headers=["*"],
+        expose_headers=["*"],
     )
 
     @app.on_event("startup")

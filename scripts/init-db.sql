@@ -14,9 +14,9 @@ BEGIN
 END
 $$;
 
--- Grant necessary permissions
-GRANT ALL PRIVILEGES ON DATABASE viralclip_dev TO viralclip;
-GRANT ALL PRIVILEGES ON DATABASE viralclip_dev TO viralclip_dev;
+-- Grant necessary permissions  
+-- Note: Database name is taken from POSTGRES_DB environment variable
+-- Default permissions are handled by Docker postgres entrypoint
 
 -- Create uploads directory table for tracking
 CREATE TABLE IF NOT EXISTS uploads_temp (

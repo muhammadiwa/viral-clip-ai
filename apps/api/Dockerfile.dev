@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first for better Docker layer caching
+COPY requirements-base.txt /app/requirements-base.txt
 COPY apps/api/requirements.txt /app/requirements.txt
 
 # Install Python dependencies
@@ -19,17 +20,24 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy application code
 COPY apps/api /app
 
+# Build arguments for configuration
+ARG API_HOST=0.0.0.0
+ARG API_PORT=8000
+ARG DEBUG_MODE=true
+
 # Set environment variables for development
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
-ENV DEBUG=true
+ENV DEBUG=${DEBUG_MODE}
+ENV API_HOST=${API_HOST}
+ENV API_PORT=${API_PORT}
 
-# Expose port
-EXPOSE 8000
+# Expose port (configurable)
+EXPOSE ${API_PORT}
 
-# Health check
+# Health check - use hardcoded port for consistency
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/healthz || exit 1
 
-# Start command with auto-reload for development
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+# Start command with auto-reload for development (configurable)
+CMD ["sh", "-c", "uvicorn app.main:app --host $API_HOST --port $API_PORT --reload"]

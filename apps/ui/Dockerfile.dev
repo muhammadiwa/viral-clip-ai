@@ -14,10 +14,16 @@ COPY apps/ui/tailwind.config.ts apps/ui/postcss.config.js ./
 COPY apps/ui/index.html ./
 COPY apps/ui/src ./src
 
+# Build arguments for configuration
+ARG UI_HOST=0.0.0.0
+ARG UI_PORT=5173
+
 # Development stage - with hot reload
 FROM base AS development
-EXPOSE 5173
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173"]
+ENV UI_HOST=${UI_HOST}
+ENV UI_PORT=${UI_PORT}
+EXPOSE ${UI_PORT}
+CMD ["sh", "-c", "npm run dev -- --host $UI_HOST --port $UI_PORT"]
 
 # Build stage
 FROM base AS build

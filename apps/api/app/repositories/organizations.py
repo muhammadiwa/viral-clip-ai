@@ -367,8 +367,10 @@ class SqlAlchemyOrganizationsRepository:
         org_id: UUID,
         payload: MembershipCreateRequest,
     ) -> MembershipModel:
-        joined_at = payload.joined_at
-        if joined_at is None and payload.status == MembershipStatus.ACTIVE:
+        # MembershipCreateRequest doesn't have joined_at field
+        # Set it automatically if status is ACTIVE
+        joined_at = None
+        if payload.status == MembershipStatus.ACTIVE:
             joined_at = datetime.utcnow()
         model = MembershipModel(
             org_id=org_id,

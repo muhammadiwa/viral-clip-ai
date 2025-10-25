@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/v1"
     project_name: str = "Viral Clip AI API"
     cors_origins: List[AnyHttpUrl] = []
+    cors_fallback_origins: List[str] = Field(
+        default=[],
+        description="Fallback CORS origins when cors_origins is empty (for development)"
+    )
     default_org_id: str | None = None
     secret_key: str = Field(default_factory=lambda: token_urlsafe(32))
     access_token_expire_minutes: int = 60
@@ -196,6 +200,12 @@ class Settings(BaseSettings):
         default=None,
         description="Base URL workers use when calling back into the API",
     )
+    
+    # Development server configuration
+    dev_api_host: str = Field(default="api", description="API service host for development proxy")
+    dev_api_port: int = Field(default=8000, description="API service port for development proxy")
+    dev_ui_host: str = Field(default="0.0.0.0", description="UI server host for development")
+    dev_ui_port: int = Field(default=5173, description="UI server port for development")
     worker_service_token: str | None = Field(
         default=None,
         description="Shared secret that authenticates background workers",

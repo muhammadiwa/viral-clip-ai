@@ -9,7 +9,7 @@ from ...domain.organizations import OrganizationCreate, MembershipRole, Membersh
 from ...domain.users import User, UserResponse, UserCreate
 from ...repositories.users import UsersRepository
 from ...repositories.organizations import OrganizationsRepository
-from ..dependencies import get_current_user, get_users_repository, get_organizations_repository, get_idempotency_context, IdempotencyContext
+from ..dependencies import get_current_user, get_users_repository, get_organizations_repository
 
 router = APIRouter(tags=["auth"])
 
@@ -19,12 +19,8 @@ async def register(
     payload: RegisterRequest,
     users_repo: UsersRepository = Depends(get_users_repository),
     orgs_repo: OrganizationsRepository = Depends(get_organizations_repository),
-    idempotency: IdempotencyContext = Depends(get_idempotency_context),
 ) -> RegisterResponse:
     """Register a new user with auto organization creation."""
-    cached = idempotency.get_response(RegisterResponse)
-    if cached:
-        return cached
     
     # Check if email already exists
     existing_user = await users_repo.get_by_email(payload.email)
@@ -88,7 +84,6 @@ async def register(
         organization=organization,
         membership=membership,
     )
-    await idempotency.store_response(response, status_code=status.HTTP_201_CREATED)
     return response
 
 
