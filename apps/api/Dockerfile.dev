@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first for better Docker layer caching
-COPY requirements-base.txt /app/requirements-base.txt
+COPY apps/requirements-base.txt /app/requirements-base.txt
 COPY apps/api/requirements.txt /app/requirements.txt
 
 # Install Python dependencies
