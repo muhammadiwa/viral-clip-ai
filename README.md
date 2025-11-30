@@ -15,6 +15,7 @@ Lihat `docs/` untuk penjelasan detail tiap fase.
 - Worker: `cd backend && python -m app.worker.main`
 - Frontend: `cd frontend && npm install && npm run dev` (login/register di UI)
 - Database migrate (wajib sebelum run): `cd backend && alembic upgrade head`
+- Generate OpenAPI spec: `cd backend && python scripts/generate_openapi.py`
 
 Prasyarat: ffmpeg/ffprobe terpasang di PATH.
 

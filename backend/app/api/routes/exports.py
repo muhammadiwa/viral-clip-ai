@@ -1,7 +1,8 @@
+from pathlib import Path
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-from pathlib import Path
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.api.deps import get_db, get_current_user, enforce_daily_job_limit, enforce_credits
 from app.core.config import get_settings
@@ -103,16 +104,24 @@ def list_exports_for_batch(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    clips = (
-        db.query(Clip)
-        .join(Clip.batch)
-        .join(ClipBatch, Clip.clip_batch_id == ClipBatch.id)
-        .filter(Clip.clip_batch_id == batch_id, ClipBatch.video.has(user_id=current_user.id))
+    batch = (
+        db.query(ClipBatch)
+        .options(selectinload(ClipBatch.clips), joinedload(ClipBatch.video))
+        .filter(ClipBatch.id == batch_id)
+        .first()
+    )
+    if not batch or not batch.video or batch.video.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Clip batch not found")
+    clip_ids = [clip.id for clip in batch.clips]
+    if not clip_ids:
+        return {}
+    exports = (
+        db.query(ExportJob)
+        .filter(ExportJob.clip_id.in_(clip_ids))
+        .order_by(ExportJob.created_at.desc())
         .all()
     )
-    result: dict[int, list[ExportJob]] = {}
-    for clip in clips:
-        result[clip.id] = (
-            db.query(ExportJob).filter(ExportJob.clip_id == clip.id).order_by(ExportJob.created_at.desc()).all()
-        )
+    result: dict[int, list[ExportJob]] = {clip_id: [] for clip_id in clip_ids}
+    for export in exports:
+        result.setdefault(export.clip_id, []).append(export)
     return result

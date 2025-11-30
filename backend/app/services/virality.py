@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -46,20 +47,86 @@ def _build_prompt(config: dict, transcripts: List[TranscriptSegment], scenes: Li
     )
 
 
+def _strip_code_fences(text: str) -> str:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?", "", cleaned).strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[: cleaned.rfind("```")].strip()
+    return cleaned
+
+
+def _coerce_json_payload(resp_text: str) -> str:
+    candidate = _strip_code_fences(resp_text)
+    if not candidate:
+        return ""
+    if candidate[0] not in "[{":
+        start = candidate.find("{")
+        end = candidate.rfind("}")
+        if start != -1 and end != -1 and end > start:
+            candidate = candidate[start : end + 1]
+    return candidate
+
+
 def _parse_response_text(resp_text: str) -> List[dict]:
-    try:
-        data = json.loads(resp_text)
-        return data.get("clips", [])
-    except Exception as e:
-        logger.error("virality.parse_failed", error=str(e))
+    payload = _coerce_json_payload(resp_text)
+    if not payload:
         return []
+    try:
+        data = json.loads(payload)
+    except Exception as e:  # pragma: no cover - defensive logging
+        logger.error("virality.parse_failed", error=str(e), preview=payload[:200])
+        return []
+    if isinstance(data, dict):
+        clips = data.get("clips", [])
+        return clips if isinstance(clips, list) else []
+    if isinstance(data, list):
+        return data
+    return []
+
+
+def _response_text_from_openai(response) -> str:
+    if response is None:
+        return ""
+    chunks: List[str] = []
+    output = getattr(response, "output", None)
+    if output:
+        for item in output:
+            for content in getattr(item, "content", []) or []:
+                text_obj = getattr(content, "text", None)
+                if text_obj and getattr(text_obj, "value", None):
+                    chunks.append(text_obj.value)
+                elif getattr(content, "value", None):
+                    chunks.append(content.value)
+    if not chunks:
+        textual = getattr(response, "output_text", None)
+        if textual:
+            chunks.append(textual)
+    if not chunks and getattr(response, "choices", None):
+        choice0 = response.choices[0]
+        message = getattr(choice0, "message", None)
+        if message is not None:
+            content = getattr(message, "content", None)
+            if isinstance(content, list):
+                for part in content:
+                    text_val = part.get("text") if isinstance(part, dict) else getattr(part, "text", None)
+                    if text_val:
+                        chunks.append(text_val if isinstance(text_val, str) else str(text_val))
+            elif content:
+                chunks.append(content if isinstance(content, str) else str(content))
+        text_attr = getattr(choice0, "text", None)
+        if text_attr:
+            chunks.append(text_attr)
+    if not chunks and getattr(response, "response_text", None):
+        chunks.append(response.response_text)
+    return "\n".join([chunk for chunk in chunks if chunk]).strip()
 
 
 def generate_clips_for_batch(
     db: Session,
     batch: ClipBatch,
     config: dict,
-) -> List[Clip]:
+) -> tuple[List[Clip], dict]:
     """
     Use OpenAI Responses API to score and propose viral clips based on transcript + scene windows.
     """
@@ -98,31 +165,36 @@ def generate_clips_for_batch(
 
     prompt = _build_prompt(config, transcripts, scenes)
     clips_json: List[dict] = []
+    response = None
+    response_text = ""
     if client:
         try:
             response = client.responses.create(
                 model=settings.openai_responses_model,
-                input=prompt,
-                response_format={"type": "json_object"},
+                input=[
+                    {
+                        "role": "system",
+                        "content": [
+                            {
+                                "type": "input_text",
+                                "text": "You are an expert viral video editor. Respond using ONLY valid JSON and no commentary.",
+                            }
+                        ],
+                    },
+                    {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
+                ],
                 temperature=0.4,
             )
-            # Extract text payload robustly
-            text_out = ""
-            if getattr(response, "output", None):
-                try:
-                    text_out = response.output[0].content[0].text  # type: ignore[attr-defined]
-                except Exception:
-                    text_out = ""
-            if not text_out and getattr(response, "choices", None):
-                text_out = response.choices[0].message.content  # type: ignore[attr-defined]
-            if not text_out:
-                text_out = getattr(response, "response_text", None) or ""
-            clips_json = _parse_response_text(text_out)
+            response_text = _response_text_from_openai(response)
+            if not response_text:
+                logger.error("virality.empty_response", batch_id=batch.id)
+            clips_json = _parse_response_text(response_text)
         except Exception as exc:
             logger.error("virality.llm_failed", error=str(exc))
             clips_json = []
 
     clips: List[Clip] = []
+    llm_used = bool(clips_json)
     if clips_json:
         for idx, clip_obj in enumerate(clips_json):
             start = float(clip_obj.get("start_sec", 0.0))
@@ -194,7 +266,7 @@ def generate_clips_for_batch(
             ClipLLMContext(
                 clip_id=clip.id,
                 prompt=prompt,
-                response_json=clips_json,
+                response_json={"clips": clips_json, "raw_text": response_text[:2000]},
             )
         )
     db.commit()
@@ -214,5 +286,10 @@ def generate_clips_for_batch(
 
     batch.status = "ready" if clips else "failed"
     db.commit()
-    logger.info("virality.done", batch_id=batch.id, clips=len(clips))
-    return clips
+    logger.info("virality.done", batch_id=batch.id, clips=len(clips), llm_used=llm_used)
+    metadata = {
+        "llm_used": llm_used,
+        "clip_count": len(clips),
+        "fallback": None if llm_used else "scene",
+    }
+    return clips, metadata

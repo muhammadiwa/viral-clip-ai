@@ -34,12 +34,16 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
     video.status = "processing"
     db.commit()
 
-    transcription.transcribe_video(db, video)
+    segments = transcription.transcribe_video(db, video)
     job.progress = 40.0
+    job.result_summary = {"transcript_segments": len(segments)}
     db.commit()
 
-    segmentation.detect_scenes(db, video)
+    scenes = segmentation.detect_scenes(db, video)
     job.progress = 80.0
+    summary = job.result_summary or {}
+    summary["scene_segments"] = len(scenes)
+    job.result_summary = summary
     video.status = "analyzed"
     db.commit()
     _complete_job(db, job)
@@ -52,13 +56,14 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
     if not batch:
         raise ValueError("Clip batch not found")
 
-    clips = virality.generate_clips_for_batch(db, batch, payload)
+    clips, clip_meta = virality.generate_clips_for_batch(db, batch, payload)
     for clip in clips:
         subtitles.generate_for_clip(db, clip)
     batch.video.status = "ready"
     job.progress = 80.0
     db.commit()
-    _complete_job(db, job, summary={"clips_created": len(clips)})
+    summary = {"clips_created": len(clips), **clip_meta}
+    _complete_job(db, job, summary=summary)
 
 
 def _process_export(db: Session, job: ProcessingJob):

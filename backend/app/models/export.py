@@ -1,21 +1,28 @@
-from sqlalchemy import Column, Integer, String, ForeignKey, Text, Float
-from sqlalchemy.orm import relationship
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
+
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.models.common import TimestampMixin
+
+if TYPE_CHECKING:  # pragma: no cover
+    from app.models.clip import Clip
 
 
 class ExportJob(Base, TimestampMixin):
     __tablename__ = "exports"
 
-    id = Column(Integer, primary_key=True)
-    clip_id = Column(Integer, ForeignKey("clips.id"), nullable=False)
-    resolution = Column(String, default="1080p")
-    fps = Column(Integer, default=30)
-    aspect_ratio = Column(String, default="9:16")
-    status = Column(String, default="queued")
-    progress = Column(Float, default=0.0)
-    output_path = Column(String)
-    error_message = Column(Text)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    clip_id: Mapped[int] = mapped_column(ForeignKey("clips.id"), nullable=False)
+    resolution: Mapped[str] = mapped_column(String, default="1080p")
+    fps: Mapped[int] = mapped_column(Integer, default=30)
+    aspect_ratio: Mapped[str] = mapped_column(String, default="9:16")
+    status: Mapped[str] = mapped_column(String, default="queued")
+    progress: Mapped[float] = mapped_column(Float, default=0.0)
+    output_path: Mapped[Optional[str]] = mapped_column(String)
+    error_message: Mapped[Optional[str]] = mapped_column(Text)
 
-    clip = relationship("Clip", back_populates="exports")
+    clip: Mapped["Clip"] = relationship("Clip", back_populates="exports")
