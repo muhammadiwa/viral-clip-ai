@@ -48,35 +48,23 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
             animate={{ scale: 1, y: 0 }}
             exit={{ scale: 0.98, y: 8 }}
           >
-            <div className="p-6 grid grid-cols-3 gap-6">
-              <div className="col-span-2 space-y-4">
-                <div className="h-64 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center text-sm text-slate-600">
+            <div className="p-6 flex gap-6">
+              <div className="flex-shrink-0 space-y-4">
+                <div className="w-[280px] aspect-[9/16] rounded-2xl bg-black overflow-hidden flex items-center justify-center text-sm text-slate-600">
                   {hasVideo ? (
                     <video
-                      className="w-full h-full object-contain bg-black"
+                      className="w-full h-full object-cover"
                       controls
                       src={clip?.video_path!}
                     />
                   ) : (
-                    <div className="grain w-full h-full flex items-center justify-center">
+                    <div className="grain w-full h-full flex items-center justify-center text-white/60">
                       {clip?.status === "ready" ? "Video preview" : "Video generating..."}
                     </div>
                   )}
                 </div>
-                <div className="p-4 rounded-2xl bg-slate-50 text-xs space-y-2">
-                  <div className="flex items-center gap-4">
-                    <div className="text-2xl font-semibold text-primary">
-                      {clip?.viral_score?.toFixed(1) ?? "7.5"}
-                    </div>
-                    <div className="text-slate-500">
-                      Hook {clip?.viral_breakdown?.hook || "A"} • Flow {clip?.viral_breakdown?.flow || "A-"} • Value{" "}
-                      {clip?.viral_breakdown?.value || "A"} • Trend {clip?.viral_breakdown?.trend || "B+"}
-                    </div>
-                  </div>
-                  <div className="text-slate-600">{clip?.transcript_preview || "Transcript preview unavailable."}</div>
-                </div>
               </div>
-              <div className="col-span-1 space-y-3">
+              <div className="flex-1 space-y-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold">{clip?.title || "Clip detail"}</div>
@@ -89,12 +77,24 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
                   </button>
                 </div>
                 <div className="text-xs text-slate-600">{clip?.description}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-2xl font-bold text-primary">
+                    {clip?.viral_score?.toFixed(1) ?? "7.5"}
+                  </div>
+                  <div className="text-[11px] text-slate-500">
+                    Hook {clip?.viral_breakdown?.hook || "A"} • Flow {clip?.viral_breakdown?.flow || "A-"}<br />
+                    Value {clip?.viral_breakdown?.value || "A"} • Trend {clip?.viral_breakdown?.trend || "B+"}
+                  </div>
+                </div>
                 <div className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
                   clip?.status === "ready" 
                     ? "bg-emerald-100 text-emerald-700" 
                     : "bg-amber-100 text-amber-700"
                 }`}>
                   {clip?.status === "ready" ? "Ready to download" : `Status: ${clip?.status}`}
+                </div>
+                <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-600">
+                  {clip?.transcript_preview || "Transcript preview unavailable."}
                 </div>
                 <div className="border rounded-xl p-3 text-xs space-y-2">
                   <div className="font-semibold text-slate-700">Subtitle segments</div>

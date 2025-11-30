@@ -32,7 +32,7 @@ const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
       }`}
       whileHover={{ y: -3 }}
     >
-      <div className="h-36 bg-slate-100 grain flex items-center justify-center text-xs text-slate-600 relative overflow-hidden">
+      <div className="aspect-[9/16] bg-black flex items-center justify-center text-xs text-slate-400 relative overflow-hidden">
         {hasVideo ? (
           <video
             className="w-full h-full object-cover"
