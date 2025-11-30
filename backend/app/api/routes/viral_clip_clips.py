@@ -57,8 +57,9 @@ def get_clip(
         .all()
     )
     transcript_preview = " ".join([t.text for t in transcript])[:400]
+    clip_data = ClipOut.model_validate(clip).model_dump()
     return ClipDetailOut(
-        **ClipDetailOut.model_validate(clip).model_dump(),
+        **clip_data,
         video_source_id=clip.batch.video_source_id,
         transcript_preview=transcript_preview,
         subtitle_language=clip.language,
