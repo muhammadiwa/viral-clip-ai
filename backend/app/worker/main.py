@@ -4,11 +4,13 @@ import traceback
 import structlog
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import ProcessingJob, ClipBatch, ExportJob
 from app.services import transcription, segmentation, virality, subtitles, exporting
 
 logger = structlog.get_logger()
+settings = get_settings()
 
 
 def _complete_job(db: Session, job: ProcessingJob, summary: dict | None = None):
@@ -77,15 +79,44 @@ def _process_export(db: Session, job: ProcessingJob):
     job.progress = 20.0
     db.commit()
 
-    exporting.render_export(
-        db=db,
-        export_job=export,
-        use_brand_kit=payload.get("use_brand_kit", True),
-        use_ai_dub=payload.get("use_ai_dub", True),
-    )
+    max_retries = settings.export_retries
+    last_error = None
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info("export.attempt", attempt=attempt, max_retries=max_retries, export_id=export_id)
+            exporting.render_export(
+                db=db,
+                export_job=export,
+                use_brand_kit=payload.get("use_brand_kit", True),
+                use_ai_dub=payload.get("use_ai_dub", True),
+            )
+            if export.status == "completed":
+                logger.info("export.success", export_id=export_id, attempt=attempt)
+                last_error = None
+                break
+            elif export.status == "failed":
+                raise RuntimeError(export.error_message or "Export failed")
+        except Exception as exc:
+            last_error = exc
+            logger.warning("export.retry_failed", attempt=attempt, error=str(exc))
+            if attempt < max_retries:
+                export.status = "running"
+                export.error_message = None
+                db.commit()
+                time.sleep(settings.retry_delay_seconds)
+            else:
+                export.status = "failed"
+                export.error_message = f"Failed after {max_retries} attempts: {str(exc)}"
+                db.commit()
+
     job.progress = 90.0
     export.progress = 90.0 if export.status != "failed" else export.progress
     db.commit()
+
+    if last_error and export.status == "failed":
+        raise last_error
+
     _complete_job(db, job, summary={"output_path": export.output_path})
 
 

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -20,6 +21,9 @@ from app.services import utils
 logger = structlog.get_logger()
 settings = get_settings()
 
+# In-memory LLM response cache (video_source_id + config_hash -> response)
+_llm_cache: dict[str, dict] = {}
+
 
 def _target_duration(preset: str) -> float:
     mapping = {
@@ -28,6 +32,47 @@ def _target_duration(preset: str) -> float:
         "0_90": 75.0,
     }
     return mapping.get(preset, 50.0)
+
+
+def _compute_cache_key(video_source_id: int, config: dict, transcript_hash: str) -> str:
+    """Generate a cache key based on video, config, and transcript content."""
+    config_str = json.dumps({
+        "video_type": config.get("video_type"),
+        "aspect_ratio": config.get("aspect_ratio"),
+        "clip_length_preset": config.get("clip_length_preset"),
+        "processing_timeframe_start": config.get("processing_timeframe_start"),
+        "processing_timeframe_end": config.get("processing_timeframe_end"),
+    }, sort_keys=True)
+    key_content = f"{video_source_id}:{config_str}:{transcript_hash}"
+    return hashlib.sha256(key_content.encode()).hexdigest()[:32]
+
+
+def _get_cached_response(cache_key: str) -> Optional[dict]:
+    """Retrieve cached LLM response if available."""
+    cached = _llm_cache.get(cache_key)
+    if cached:
+        logger.info("virality.cache_hit", cache_key=cache_key)
+        return cached
+    return None
+
+
+def _set_cached_response(cache_key: str, clips_json: List[dict], response_text: str) -> None:
+    """Store LLM response in cache."""
+    _llm_cache[cache_key] = {
+        "clips_json": clips_json,
+        "response_text": response_text,
+    }
+    # Limit cache size to prevent memory bloat
+    if len(_llm_cache) > 100:
+        oldest_key = next(iter(_llm_cache))
+        del _llm_cache[oldest_key]
+    logger.info("virality.cache_set", cache_key=cache_key)
+
+
+def clear_llm_cache() -> None:
+    """Clear the LLM response cache."""
+    _llm_cache.clear()
+    logger.info("virality.cache_cleared")
 
 
 def _build_prompt(config: dict, transcripts: List[TranscriptSegment], scenes: List[SceneSegment]) -> str:
@@ -164,10 +209,26 @@ def generate_clips_for_batch(
     db.query(Clip).filter(Clip.clip_batch_id == batch.id).delete(synchronize_session=False)
 
     prompt = _build_prompt(config, transcripts, scenes)
+
+    # Generate transcript hash for cache key
+    transcript_hash = hashlib.md5(
+        " ".join(t.text for t in transcripts).encode()
+    ).hexdigest()[:16]
+    cache_key = _compute_cache_key(batch.video_source_id, config, transcript_hash)
+
     clips_json: List[dict] = []
     response = None
     response_text = ""
-    if client:
+    cache_used = False
+
+    # Check cache first
+    cached = _get_cached_response(cache_key)
+    if cached:
+        clips_json = cached.get("clips_json", [])
+        response_text = cached.get("response_text", "")
+        cache_used = True
+        logger.info("virality.using_cache", batch_id=batch.id, cache_key=cache_key)
+    elif client:
         try:
             response = client.responses.create(
                 model=settings.openai_responses_model,
@@ -189,6 +250,10 @@ def generate_clips_for_batch(
             if not response_text:
                 logger.error("virality.empty_response", batch_id=batch.id)
             clips_json = _parse_response_text(response_text)
+
+            # Cache the successful response
+            if clips_json:
+                _set_cached_response(cache_key, clips_json, response_text)
         except Exception as exc:
             logger.error("virality.llm_failed", error=str(exc))
             clips_json = []
@@ -286,9 +351,16 @@ def generate_clips_for_batch(
 
     batch.status = "ready" if clips else "failed"
     db.commit()
-    logger.info("virality.done", batch_id=batch.id, clips=len(clips), llm_used=llm_used)
+    logger.info(
+        "virality.done",
+        batch_id=batch.id,
+        clips=len(clips),
+        llm_used=llm_used,
+        cache_used=cache_used,
+    )
     metadata = {
         "llm_used": llm_used,
+        "cache_used": cache_used,
         "clip_count": len(clips),
         "fallback": None if llm_used else "scene",
     }

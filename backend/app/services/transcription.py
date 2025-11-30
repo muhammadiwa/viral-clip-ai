@@ -82,12 +82,50 @@ def transcribe_video(db: Session, video: VideoSource) -> List[TranscriptSegment]
     all_segments: List[TranscriptSegment] = []
     total_tokens_in = 0
     total_tokens_out = 0
+    chunk_ranges = _chunk_ranges(duration)
+    total_chunks = len(chunk_ranges)
 
-    for start, chunk_dur in _chunk_ranges(duration):
+    for chunk_idx, (start, chunk_dur) in enumerate(chunk_ranges, 1):
         chunk_path = audio_root / f"video-{video.id}-{int(start)}.wav"
+        logger.info(
+            "transcription.chunk_start",
+            video_id=video.id,
+            chunk=chunk_idx,
+            total_chunks=total_chunks,
+            start_sec=start,
+            duration_sec=chunk_dur,
+        )
+
         if not utils.extract_audio(video.file_path, str(chunk_path), start=start, duration=chunk_dur):
+            logger.warning("transcription.chunk_audio_failed", video_id=video.id, chunk=chunk_idx)
             continue
-        raw_segments, usage = _transcribe_chunk(client, str(chunk_path), settings.openai_whisper_model)
+
+        try:
+            raw_segments, usage = _transcribe_chunk(client, str(chunk_path), settings.openai_whisper_model)
+        except Exception as e:
+            logger.error("transcription.chunk_failed", video_id=video.id, chunk=chunk_idx, error=str(e))
+            continue
+
+        chunk_tokens_in = 0
+        chunk_tokens_out = 0
+        if usage:
+            chunk_tokens_in = usage.get("prompt_tokens", 0) or 0
+            chunk_tokens_out = usage.get("completion_tokens", 0) or 0
+            total_tokens_in += chunk_tokens_in
+            total_tokens_out += chunk_tokens_out
+
+        # Log per-chunk AIUsageLog for detailed tracking
+        if chunk_tokens_in or chunk_tokens_out:
+            db.add(
+                AIUsageLog(
+                    user_id=video.user_id,
+                    provider="openai",
+                    model=settings.openai_whisper_model,
+                    tokens_input=chunk_tokens_in,
+                    tokens_output=chunk_tokens_out,
+                )
+            )
+
         for seg in raw_segments:
             all_segments.append(
                 TranscriptSegment(
@@ -99,9 +137,15 @@ def transcribe_video(db: Session, video: VideoSource) -> List[TranscriptSegment]
                     language=_segment_value(seg, "language", "en") or "en",
                 )
             )
-        if usage:
-            total_tokens_in += usage.get("prompt_tokens", 0) or 0
-            total_tokens_out += usage.get("completion_tokens", 0) or 0
+
+        logger.info(
+            "transcription.chunk_done",
+            video_id=video.id,
+            chunk=chunk_idx,
+            segments_count=len(raw_segments),
+            tokens_in=chunk_tokens_in,
+            tokens_out=chunk_tokens_out,
+        )
 
     if not all_segments:
         raise RuntimeError("Transcription produced no segments")
@@ -111,18 +155,14 @@ def transcribe_video(db: Session, video: VideoSource) -> List[TranscriptSegment]
     db.query(TranscriptSegment).filter(TranscriptSegment.video_source_id == video.id).delete()
     for seg in all_segments:
         db.add(seg)
-    if total_tokens_in or total_tokens_out:
-        db.add(
-            AIUsageLog(
-                user_id=video.user_id,
-                provider="openai",
-                model=settings.openai_whisper_model,
-                tokens_input=total_tokens_in,
-                tokens_output=total_tokens_out,
-            )
-        )
     db.commit()
     db.refresh(video)
 
-    logger.info("transcription.done", video_id=video.id, segments=len(all_segments))
+    logger.info(
+        "transcription.done",
+        video_id=video.id,
+        segments=len(all_segments),
+        total_tokens_in=total_tokens_in,
+        total_tokens_out=total_tokens_out,
+    )
     return all_segments
