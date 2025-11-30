@@ -1,6 +1,7 @@
 import os
 import time
 import uuid
+from pathlib import Path
 from typing import Any, Dict
 
 import structlog
@@ -63,13 +64,27 @@ async def create_from_youtube(
             logger.info("youtube.download_attempt", attempt=attempt, max_retries=max_retries, url=youtube_url)
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
-                if info and info.get("title"):
-                    video.title = info.get("title")
+                if info:
+                    if info.get("title"):
+                        video.title = info.get("title")
+                    # Get YouTube thumbnail URL (highest quality available)
+                    thumbnail_url = info.get("thumbnail")
+                    if not thumbnail_url:
+                        # Try to get from thumbnails list
+                        thumbnails = info.get("thumbnails", [])
+                        if thumbnails:
+                            # Get highest resolution thumbnail
+                            best_thumb = max(thumbnails, key=lambda t: t.get("height", 0) or 0)
+                            thumbnail_url = best_thumb.get("url")
+                    if thumbnail_url:
+                        video.thumbnail_path = thumbnail_url
+                        logger.info("youtube.thumbnail_found", thumbnail_url=thumbnail_url)
                 ydl.download([youtube_url])
             video.file_path = target_path
             duration = utils.probe_duration(target_path)
             if duration:
                 video.duration_seconds = duration
+            
             db.commit()
             logger.info("youtube.download_success", video_id=video.id, attempt=attempt)
             last_error = None
@@ -148,10 +163,23 @@ async def create_from_upload(
     db.add(video)
     db.commit()
     db.refresh(video)
+    
     duration = utils.probe_duration(file_path)
     if duration:
         video.duration_seconds = duration
-        db.commit()
+    
+    # Generate thumbnail at 10% of video duration
+    thumb_dir = utils.ensure_dir(Path(settings.media_root) / "thumbnails" / "videos" / str(video.id))
+    thumb_path = thumb_dir / "thumb.jpg"
+    thumb_timestamp = (duration or 10) * 0.1  # 10% into video
+    if utils.render_thumbnail(file_path, str(thumb_path), thumb_timestamp):
+        try:
+            relative = thumb_path.relative_to(Path(settings.media_root))
+            video.thumbnail_path = f"{settings.media_base_url}/{relative.as_posix()}"
+        except Exception:
+            video.thumbnail_path = str(thumb_path)
+    
+    db.commit()
 
     payload: Dict[str, Any] = {
         "video_type": video_type,

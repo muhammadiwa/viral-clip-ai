@@ -13,6 +13,7 @@ export type VideoSource = {
   source_type: string;
   source_url?: string | null;
   file_path?: string | null;
+  thumbnail_path?: string | null;
   duration_seconds?: number | null;
   status: string;
   error_message?: string | null;

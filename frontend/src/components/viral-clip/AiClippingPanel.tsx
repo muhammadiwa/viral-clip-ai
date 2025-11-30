@@ -89,8 +89,18 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
     <section className="mt-8 rounded-3xl bg-white p-5 shadow-sm border border-slate-100">
       <div className="flex items-center gap-4 mb-4">
         <div className="h-16 w-28 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-600 grain relative overflow-hidden">
-          <span className="z-10">Thumb</span>
-          <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/5" />
+          {video.thumbnail_path ? (
+            <img
+              src={video.thumbnail_path}
+              alt={video.title || "Video thumbnail"}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <>
+              <span className="z-10">No thumbnail</span>
+              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/5" />
+            </>
+          )}
         </div>
         <div>
           <div className="text-sm font-semibold">{video.title || "Untitled video"}</div>

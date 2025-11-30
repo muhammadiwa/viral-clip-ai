@@ -315,18 +315,27 @@ def generate_clips_for_batch(
             clips.append(clip)
     db.commit()
 
-    # Thumbnail rendering
+    # Thumbnail rendering for clips
     for clip in clips:
-        thumb_dir = utils.ensure_dir(Path(settings.media_root) / "thumbnails" / str(clip.id))
-        thumb_path = thumb_dir / "thumb.jpg"
         mid = clip.start_time_sec + (clip.duration_sec / 2)
+        
         if batch.video.file_path:
-            utils.render_thumbnail(batch.video.file_path, str(thumb_path), mid)
-            try:
-                relative = thumb_path.relative_to(Path(settings.media_root))
-                clip.thumbnail_path = f"{settings.media_base_url}/{relative.as_posix()}"
-            except Exception:
-                clip.thumbnail_path = str(thumb_path)
+            # Generate thumbnail from video file at clip midpoint
+            thumb_dir = utils.ensure_dir(Path(settings.media_root) / "thumbnails" / str(clip.id))
+            thumb_path = thumb_dir / "thumb.jpg"
+            if utils.render_thumbnail(batch.video.file_path, str(thumb_path), mid):
+                try:
+                    relative = thumb_path.relative_to(Path(settings.media_root))
+                    clip.thumbnail_path = f"{settings.media_base_url}/{relative.as_posix()}"
+                except Exception:
+                    clip.thumbnail_path = str(thumb_path)
+            elif batch.video.thumbnail_path:
+                # Fallback to video thumbnail if render fails
+                clip.thumbnail_path = batch.video.thumbnail_path
+        elif batch.video.thumbnail_path:
+            # Use video thumbnail (e.g., YouTube thumbnail) if no file
+            clip.thumbnail_path = batch.video.thumbnail_path
+        
         db.add(
             ClipLLMContext(
                 clip_id=clip.id,

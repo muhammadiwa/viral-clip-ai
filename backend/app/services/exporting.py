@@ -34,15 +34,24 @@ def _write_srt(subtitles: List[SubtitleSegment], clip_start: float, path: Path) 
 
 
 def _video_scale_filter(resolution: str, aspect_ratio: str) -> str:
+    """
+    Build ffmpeg scale+pad filter for target resolution and aspect ratio.
+    Uses letterbox/pillarbox approach - no cropping, adds black bars where needed.
+    """
     if resolution == "1080p":
-        height = 1920 if aspect_ratio == "9:16" else 1080
-    else:
-        height = 1280 if aspect_ratio == "9:16" else 720
-    if aspect_ratio == "9:16":
-        return f"scale=-2:{height},setsar=1:1"
-    if aspect_ratio == "1:1":
-        return f"scale={height}:{height},setsar=1:1"
-    return f"scale=-2:{height},setsar=1:1"
+        if aspect_ratio == "9:16":
+            return "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
+        elif aspect_ratio == "1:1":
+            return "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
+        else:  # 16:9
+            return "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
+    else:  # 720p
+        if aspect_ratio == "9:16":
+            return "scale=720:1280:force_original_aspect_ratio=decrease,pad=720:1280:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
+        elif aspect_ratio == "1:1":
+            return "scale=720:720:force_original_aspect_ratio=decrease,pad=720:720:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
+        else:  # 16:9
+            return "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2:black,setsar=1:1"
 
 
 def render_export(

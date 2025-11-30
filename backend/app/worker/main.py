@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import ProcessingJob, ClipBatch, ExportJob
+from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment
 from app.services import transcription, segmentation, virality, subtitles, exporting, utils
 
 logger = structlog.get_logger()
@@ -68,8 +68,27 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
 
     # Auto-generate video clip files
     aspect_ratio = payload.get("aspect_ratio", "9:16")
+    subtitle_enabled = payload.get("subtitle_enabled", True)
+    subtitle_style_id = payload.get("subtitle_style_id")
     video_path = batch.video.file_path
     clips_rendered = 0
+    
+    # Get subtitle style if specified
+    subtitle_style_json = None
+    if subtitle_style_id:
+        style = db.query(SubtitleStyle).filter(SubtitleStyle.id == subtitle_style_id).first()
+        if style:
+            subtitle_style_json = style.style_json
+            logger.info("clip.using_subtitle_style", style_id=subtitle_style_id, style_name=style.name)
+    
+    logger.info(
+        "clip.render_config",
+        video_path=video_path,
+        aspect_ratio=aspect_ratio,
+        subtitle_enabled=subtitle_enabled,
+        subtitle_style_id=subtitle_style_id,
+        clips_count=len(clips),
+    )
     
     if video_path:
         for idx, clip in enumerate(clips):
@@ -83,12 +102,34 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
                 total_clips=len(clips),
             )
             
+            # Get subtitles for this clip
+            clip_subtitles = None
+            if subtitle_enabled:
+                subs = (
+                    db.query(SubtitleSegment)
+                    .filter(SubtitleSegment.clip_id == clip.id)
+                    .order_by(SubtitleSegment.start_time_sec)
+                    .all()
+                )
+                if subs:
+                    clip_subtitles = [
+                        {
+                            "start_time_sec": s.start_time_sec,
+                            "end_time_sec": s.end_time_sec,
+                            "text": s.text,
+                        }
+                        for s in subs
+                    ]
+            
             success = utils.render_clip_preview(
                 source_path=video_path,
                 output_path=str(output_path),
                 start_sec=clip.start_time_sec,
                 duration_sec=clip.duration_sec,
                 aspect_ratio=aspect_ratio,
+                subtitles=clip_subtitles,
+                subtitle_style=subtitle_style_json,
+                subtitle_enabled=subtitle_enabled,
             )
             
             if success:
@@ -107,6 +148,8 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
             progress = 60.0 + (30.0 * (idx + 1) / len(clips))
             job.progress = progress
             db.commit()
+    else:
+        logger.warning("clip.no_video_path", batch_id=batch.id, msg="Video file path is empty, skipping render")
 
     batch.video.status = "ready"
     job.progress = 95.0

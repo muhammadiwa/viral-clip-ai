@@ -13,6 +13,7 @@ class VideoSource(Base, TimestampMixin):
     source_type = Column(String, nullable=False)  # youtube | upload
     source_url = Column(String)
     file_path = Column(String)
+    thumbnail_path = Column(String)  # URL to video thumbnail
     title = Column(String)
     duration_seconds = Column(Float)
     status = Column(String, default="pending")  # pending|processing|analyzed|ready|failed

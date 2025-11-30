@@ -12,6 +12,7 @@ class VideoSourceOut(BaseModel):
     source_type: str
     source_url: Optional[str] = None
     file_path: Optional[str] = None
+    thumbnail_path: Optional[str] = None
     duration_seconds: Optional[float] = None
     status: str
     error_message: Optional[str] = None

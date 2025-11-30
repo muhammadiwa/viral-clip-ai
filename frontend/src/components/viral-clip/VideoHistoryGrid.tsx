@@ -57,8 +57,18 @@ const VideoHistoryGrid: React.FC<Props> = ({ selectedId, onSelect }) => {
             whileHover={{ y: -3 }}
           >
             <div className="h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-600 grain relative overflow-hidden">
-              <span className="z-10">Thumbnail</span>
-              <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/5" />
+              {v.thumbnail_path ? (
+                <img
+                  src={v.thumbnail_path}
+                  alt={v.title || "Video thumbnail"}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <>
+                  <span className="z-10">No thumbnail</span>
+                  <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/5" />
+                </>
+              )}
             </div>
             <div className="p-3 space-y-1">
               <div className="text-xs font-semibold line-clamp-2">
