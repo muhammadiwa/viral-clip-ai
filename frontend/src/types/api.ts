@@ -42,6 +42,7 @@ export type Clip = {
   language?: string | null;
   status: string;
   thumbnail_path?: string | null;
+  video_path?: string | null;
 };
 
 export type ClipDetail = Clip & {

@@ -45,6 +45,7 @@ class ClipOut(BaseModel):
     language: Optional[str] = None
     status: str
     thumbnail_path: Optional[str] = None
+    video_path: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

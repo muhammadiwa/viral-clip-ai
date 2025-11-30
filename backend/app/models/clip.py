@@ -36,6 +36,7 @@ class Clip(Base, TimestampMixin):
     language = Column(String, default="en")
     status = Column(String, default="candidate")  # candidate|edited|exported
     thumbnail_path = Column(String)
+    video_path = Column(String)  # Path to auto-generated clip video file
 
     batch = relationship("ClipBatch", back_populates="clips")
     subtitles = relationship("SubtitleSegment", back_populates="clip", cascade="all, delete-orphan")

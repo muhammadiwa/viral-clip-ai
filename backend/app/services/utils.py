@@ -118,3 +118,45 @@ def render_thumbnail(source_path: str, output_path: str, timestamp: float) -> bo
         logger.error("ffmpeg.thumbnail_failed", error=err)
         return False
     return True
+
+
+def render_clip_preview(
+    source_path: str,
+    output_path: str,
+    start_sec: float,
+    duration_sec: float,
+    aspect_ratio: str = "9:16",
+) -> bool:
+    """
+    Render a simple clip preview (cut from source video) without subtitles or brand kit.
+    Used for auto-generating clip previews during clip generation.
+    """
+    # Build scale filter based on aspect ratio
+    if aspect_ratio == "9:16":
+        scale_filter = "scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2"
+    elif aspect_ratio == "1:1":
+        scale_filter = "scale=1080:1080:force_original_aspect_ratio=decrease,pad=1080:1080:(ow-iw)/2:(oh-ih)/2"
+    else:  # 16:9
+        scale_filter = "scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2"
+
+    cmd = [
+        settings.ffmpeg_bin,
+        "-y",
+        "-ss", str(start_sec),
+        "-i", source_path,
+        "-t", str(duration_sec),
+        "-vf", scale_filter,
+        "-c:v", "libx264",
+        "-preset", "fast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "+faststart",
+        output_path,
+    ]
+    code, _, err = run_cmd(cmd)
+    if code != 0:
+        logger.error("ffmpeg.clip_preview_failed", error=err, output_path=output_path)
+        return False
+    logger.info("ffmpeg.clip_preview_done", output_path=output_path)
+    return True

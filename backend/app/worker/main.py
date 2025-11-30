@@ -1,5 +1,6 @@
 import time
 import traceback
+from pathlib import Path
 
 import structlog
 from sqlalchemy.orm import Session
@@ -7,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import ProcessingJob, ClipBatch, ExportJob
-from app.services import transcription, segmentation, virality, subtitles, exporting
+from app.services import transcription, segmentation, virality, subtitles, exporting, utils
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -61,10 +62,57 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
     clips, clip_meta = virality.generate_clips_for_batch(db, batch, payload)
     for clip in clips:
         subtitles.generate_for_clip(db, clip)
-    batch.video.status = "ready"
-    job.progress = 80.0
+    
+    job.progress = 60.0
     db.commit()
-    summary = {"clips_created": len(clips), **clip_meta}
+
+    # Auto-generate video clip files
+    aspect_ratio = payload.get("aspect_ratio", "9:16")
+    video_path = batch.video.file_path
+    clips_rendered = 0
+    
+    if video_path:
+        for idx, clip in enumerate(clips):
+            clip_dir = utils.ensure_dir(Path(settings.media_root) / "clips" / str(clip.id))
+            output_path = clip_dir / f"preview_{clip.id}.mp4"
+            
+            logger.info(
+                "clip.render_start",
+                clip_id=clip.id,
+                clip_index=idx + 1,
+                total_clips=len(clips),
+            )
+            
+            success = utils.render_clip_preview(
+                source_path=video_path,
+                output_path=str(output_path),
+                start_sec=clip.start_time_sec,
+                duration_sec=clip.duration_sec,
+                aspect_ratio=aspect_ratio,
+            )
+            
+            if success:
+                try:
+                    relative = output_path.relative_to(Path(settings.media_root))
+                    clip.video_path = f"{settings.media_base_url}/{relative.as_posix()}"
+                except Exception:
+                    clip.video_path = str(output_path)
+                clip.status = "ready"
+                clips_rendered += 1
+                logger.info("clip.render_done", clip_id=clip.id, video_path=clip.video_path)
+            else:
+                logger.warning("clip.render_failed", clip_id=clip.id)
+            
+            # Update progress
+            progress = 60.0 + (30.0 * (idx + 1) / len(clips))
+            job.progress = progress
+            db.commit()
+
+    batch.video.status = "ready"
+    job.progress = 95.0
+    db.commit()
+    
+    summary = {"clips_created": len(clips), "clips_rendered": clips_rendered, **clip_meta}
     _complete_job(db, job, summary=summary)
 
 
