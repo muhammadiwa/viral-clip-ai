@@ -1,5 +1,65 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
 
-router = APIRouter(prefix="/viral-clip-clips", tags=["viral_clip_clips"])
+from app.api.deps import get_db, get_current_user
+from app.models import ClipBatch, Clip, TranscriptSegment, User
+from app.schemas import ClipOut, ClipDetailOut
 
-# TODO: implement endpoints untuk viral_clip_clips sesuai dokumen di folder docs.
+router = APIRouter(prefix="/viral-clip", tags=["clips"])
+
+
+@router.get("/clip-batches/{batch_id}/clips", response_model=list[ClipOut])
+def list_clips(
+    batch_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    batch = (
+        db.query(ClipBatch)
+        .filter(ClipBatch.id == batch_id, ClipBatch.video.has(user_id=current_user.id))
+        .first()
+    )
+    if not batch:
+        raise HTTPException(status_code=404, detail="Batch not found")
+    clips = (
+        db.query(Clip)
+        .filter(Clip.clip_batch_id == batch.id)
+        .order_by(Clip.viral_score.desc().nullslast(), Clip.created_at.desc())
+        .all()
+    )
+    return clips
+
+
+@router.get("/clips/{clip_id}", response_model=ClipDetailOut)
+def get_clip(
+    clip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip or clip.batch.video.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    transcript = (
+        db.query(TranscriptSegment)
+        .filter(
+            TranscriptSegment.video_source_id == clip.batch.video_source_id,
+            TranscriptSegment.start_time_sec >= clip.start_time_sec,
+            TranscriptSegment.end_time_sec <= clip.end_time_sec,
+        )
+        .order_by(TranscriptSegment.start_time_sec)
+        .all()
+    )
+    transcript_preview = " ".join([t.text for t in transcript])[:400]
+    return ClipDetailOut(
+        **ClipDetailOut.model_validate(clip).model_dump(),
+        video_source_id=clip.batch.video_source_id,
+        transcript_preview=transcript_preview,
+        subtitle_language=clip.language,
+        viral_breakdown={
+            "hook": clip.grade_hook,
+            "flow": clip.grade_flow,
+            "value": clip.grade_value,
+            "trend": clip.grade_trend,
+        },
+    )

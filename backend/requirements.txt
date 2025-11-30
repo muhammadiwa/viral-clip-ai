@@ -10,3 +10,7 @@ python-jose[cryptography]
 httpx
 openai
 structlog
+yt-dlp
+email-validator
+bcrypt==4.1.2
+python-dotenv

@@ -1,23 +1,102 @@
-import React from "react";
-import { VideoSource } from "../../types/api";
+import React, { useEffect, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "../../lib/apiClient";
+import { SubtitleStyle, VideoSource } from "../../types/api";
+import { motion } from "framer-motion";
 
 type Props = {
   video?: VideoSource;
+  onBatchCreated: (batchId: number) => void;
 };
 
-const AiClippingPanel: React.FC<Props> = ({ video }) => {
+const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
+  const [videoType, setVideoType] = useState("podcast");
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [clipLengthPreset, setClipLengthPreset] = useState("auto_0_60");
+  const [subtitleEnabled, setSubtitleEnabled] = useState(true);
+  const [includeMoments, setIncludeMoments] = useState("");
+  const [timeframe, setTimeframe] = useState<[number, number]>([0, 90]);
+  const qc = useQueryClient();
+  const [batchJobId, setBatchJobId] = useState<number | null>(null);
+  const [batchProgress, setBatchProgress] = useState<string | null>(null);
+  const maxTime = Math.max(60, Math.ceil(video?.duration_seconds ?? 180));
+
+  useEffect(() => {
+    setTimeframe([0, Math.min(90, maxTime)]);
+  }, [video?.id]);
+
+  const { data: styles } = useQuery<SubtitleStyle[]>({
+    queryKey: ["subtitle-styles"],
+    queryFn: async () => {
+      const res = await api.get("/subtitle-styles");
+      return res.data;
+    },
+    enabled: Boolean(video)
+  });
+
+  const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      if (!video) return null;
+      const res = await api.post(`/viral-clip/videos/${video.id}/clip-batches`, {
+        video_type: videoType,
+        aspect_ratio: aspectRatio,
+        clip_length_preset: clipLengthPreset,
+        subtitle_enabled: subtitleEnabled,
+        subtitle_style_id: selectedStyleId,
+        include_specific_moments: includeMoments,
+        processing_timeframe_start: timeframe[0],
+        processing_timeframe_end: timeframe[1]
+      });
+      return res.data;
+    },
+    onSuccess: async (data) => {
+      if (data?.batch?.id) {
+        onBatchCreated(data.batch.id);
+      }
+      if (data?.job?.id) {
+        setBatchJobId(data.job.id);
+      }
+      await qc.invalidateQueries({ queryKey: ["clip-batches", video?.id] });
+    }
+  });
+
+  useQuery({
+    queryKey: ["job", batchJobId],
+    enabled: Boolean(batchJobId),
+    queryFn: async () => {
+      const res = await api.get(`/viral-clip/jobs/${batchJobId}`);
+      return res.data;
+    },
+    refetchInterval: batchJobId ? 3000 : false,
+    onSuccess: (job) => {
+      setBatchProgress(`${job.status} ${job.progress?.toFixed?.(0) ?? ""}%`);
+      if (job.status === "completed" || job.status === "failed") {
+        setBatchJobId(null);
+      }
+    }
+  });
+
+  const selectedStyle = useMemo(
+    () => styles?.find((s) => s.id === selectedStyleId) || styles?.find((s) => s.is_default_global),
+    [styles, selectedStyleId]
+  );
+
   if (!video) return null;
 
   return (
-    <section className="mt-8 rounded-3xl bg-white p-5 shadow-sm">
+    <section className="mt-8 rounded-3xl bg-white p-5 shadow-sm border border-slate-100">
       <div className="flex items-center gap-4 mb-4">
-        <div className="h-16 w-28 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-600">
-          Thumb
+        <div className="h-16 w-28 bg-slate-200 rounded-lg flex items-center justify-center text-xs text-slate-600 grain relative overflow-hidden">
+          <span className="z-10">Thumb</span>
+          <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-black/5" />
         </div>
         <div>
           <div className="text-sm font-semibold">{video.title || "Untitled video"}</div>
           <div className="text-xs text-slate-500">
             Source: {video.source_type} • Status: {video.status}
+            {batchProgress ? ` • Batch: ${batchProgress}` : ""}
           </div>
         </div>
       </div>
@@ -25,40 +104,121 @@ const AiClippingPanel: React.FC<Props> = ({ video }) => {
       <div className="grid grid-cols-4 gap-4 text-xs">
         <div>
           <label className="block mb-1 text-slate-500">Video type</label>
-          <select className="w-full rounded-lg border border-slate-200 px-2 py-2">
-            <option>Podcast</option>
-            <option>Talking head</option>
-            <option>Gaming</option>
+          <select
+            className="w-full rounded-lg border border-slate-200 px-2 py-2"
+            value={videoType}
+            onChange={(e) => setVideoType(e.target.value)}
+          >
+            <option value="podcast">Podcast</option>
+            <option value="talking_head">Talking head</option>
+            <option value="gaming">Gaming</option>
           </select>
         </div>
         <div>
           <label className="block mb-1 text-slate-500">Aspect ratio</label>
-          <select className="w-full rounded-lg border border-slate-200 px-2 py-2">
-            <option>9:16</option>
-            <option>16:9</option>
-            <option>1:1</option>
+          <select
+            className="w-full rounded-lg border border-slate-200 px-2 py-2"
+            value={aspectRatio}
+            onChange={(e) => setAspectRatio(e.target.value)}
+          >
+            <option value="9:16">9:16</option>
+            <option value="16:9">16:9</option>
+            <option value="1:1">1:1</option>
           </select>
         </div>
         <div>
           <label className="block mb-1 text-slate-500">Clip length</label>
-          <select className="w-full rounded-lg border border-slate-200 px-2 py-2">
-            <option>Auto (0–60s)</option>
-            <option>0–30s</option>
-            <option>0–90s</option>
+          <select
+            className="w-full rounded-lg border border-slate-200 px-2 py-2"
+            value={clipLengthPreset}
+            onChange={(e) => setClipLengthPreset(e.target.value)}
+          >
+            <option value="auto_0_60">Auto (0–60s)</option>
+            <option value="0_30">0–30s</option>
+            <option value="0_90">0–90s</option>
           </select>
         </div>
         <div>
           <label className="block mb-1 text-slate-500">Subtitle</label>
-          <select className="w-full rounded-lg border border-slate-200 px-2 py-2">
-            <option>Yes</option>
-            <option>No</option>
+          <select
+            className="w-full rounded-lg border border-slate-200 px-2 py-2"
+            value={subtitleEnabled ? "yes" : "no"}
+            onChange={(e) => setSubtitleEnabled(e.target.value === "yes")}
+          >
+            <option value="yes">Yes</option>
+            <option value="no">No</option>
           </select>
         </div>
       </div>
 
-      <div className="mt-6 text-xs text-slate-500">
-        Subtitle styles, timeframe slider, dan tombol "Generate Clips" bisa ditambahkan
-        di sini mengikuti spesifikasi di docs.
+      <div className="mt-6 text-xs">
+        <label className="block mb-1 text-slate-500">Include specific moments</label>
+        <input
+          className="w-full rounded-xl border border-slate-200 px-3 py-2"
+          placeholder="e.g. intro joke at 02:10, product pitch at 10:30"
+          value={includeMoments}
+          onChange={(e) => setIncludeMoments(e.target.value)}
+        />
+      </div>
+
+      <div className="mt-6">
+        <div className="flex items-center justify-between text-xs mb-2 text-slate-500">
+          <span>Processing timeframe (seconds)</span>
+          <span>
+            {timeframe[0]}s – {timeframe[1]}s
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <input
+            type="range"
+            min={0}
+            max={timeframe[1]}
+            value={timeframe[0]}
+            onChange={(e) => setTimeframe([Number(e.target.value), timeframe[1]])}
+          />
+          <input
+            type="range"
+            min={timeframe[0]}
+            max={maxTime}
+            value={timeframe[1]}
+            onChange={(e) => setTimeframe([timeframe[0], Number(e.target.value)])}
+          />
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <div className="text-xs font-semibold text-slate-600 mb-2">Subtitle Style</div>
+        <div className="grid grid-cols-4 gap-3">
+          {styles?.map((style) => (
+            <button
+              key={style.id}
+              onClick={() => setSelectedStyleId(style.id)}
+              className={`rounded-xl border px-3 py-2 text-left text-xs ${
+                selectedStyleId === style.id ? "border-primary bg-primary/5" : "border-slate-200"
+              }`}
+            >
+              <div className="font-semibold text-slate-800">{style.name}</div>
+              <div className="text-[11px] text-slate-500">
+                {style.style_json.font_family || "Sans"} • {style.style_json.position || "bottom"}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-6 flex items-center justify-between">
+        <div className="text-xs text-slate-500">
+          Selected style: {selectedStyle?.name || "Bold Pop"} • Subtitle {subtitleEnabled ? "enabled" : "disabled"}
+        </div>
+        <motion.button
+          onClick={() => mutation.mutate()}
+          disabled={mutation.isPending}
+          className="inline-flex items-center justify-center rounded-full bg-primary text-white px-5 py-3 text-sm font-semibold shadow-md disabled:opacity-60"
+          whileHover={{ scale: mutation.isPending ? 1 : 1.02 }}
+          whileTap={{ scale: mutation.isPending ? 1 : 0.98 }}
+        >
+          {mutation.isPending ? "Generating…" : "Generate Clips"}
+        </motion.button>
       </div>
     </section>
   );

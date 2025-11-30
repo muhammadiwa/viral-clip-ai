@@ -1,28 +1,56 @@
-from pydantic_settings import BaseSettings
 from functools import lru_cache
+from pathlib import Path
 from typing import List
+
+from dotenv import load_dotenv
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+REPO_ROOT = BACKEND_DIR.parent
+ENV_FILES = [REPO_ROOT / ".env", BACKEND_DIR / ".env"]
+
+for env_path in ENV_FILES:
+    if env_path.exists():
+        load_dotenv(env_path, override=False)
 
 
 class Settings(BaseSettings):
-    app_name: str = "Viral Clip AI"
-    app_env: str = "dev"
+    model_config = SettingsConfigDict(case_sensitive=False, extra="allow")
 
-    database_url: str = "sqlite:///./app.db"
-    media_root: str = "media"
+    app_name: str = Field(default="Viral Clip AI", alias="APP_NAME")
+    app_env: str = Field(default="dev", alias="APP_ENV")
 
-    openai_api_key: str = "sk-CHANGE_ME"
+    database_url: str = Field(default="sqlite:///./app.db", alias="DATABASE_URL")
+    media_root: str = Field(default="media", alias="MEDIA_ROOT")
+    media_base_url: str = Field(default="http://localhost:8000/media", alias="MEDIA_BASE_URL")
 
-    jwt_secret: str = "change-me"
-    jwt_algorithm: str = "HS256"
-    jwt_expires_minutes: int = 60
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_whisper_model: str = Field(default="whisper-1", alias="OPENAI_WHISPER_MODEL")
+    openai_responses_model: str = Field(default="gpt-4o-mini", alias="OPENAI_RESPONSES_MODEL")
+    openai_tts_model: str = Field(default="gpt-4o-mini-tts", alias="OPENAI_TTS_MODEL")
+    openai_voice: str = Field(default="alloy", alias="OPENAI_VOICE")
+    credit_cost_per_minute: int = Field(default=1, alias="CREDIT_COST_PER_MINUTE")
+    credit_cost_per_export: int = Field(default=1, alias="CREDIT_COST_PER_EXPORT")
 
-    backend_cors_origins: List[str] = ["http://localhost:5173"]
+    jwt_secret: str = Field(default="", alias="JWT_SECRET")
+    jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
+    jwt_expires_minutes: int = Field(default=60, alias="JWT_EXPIRES_MINUTES")
 
-    class Config:
-        env_file = ".env"
-        case_sensitive = True
+    backend_cors_origins_raw: str = Field(default="http://localhost:5173", alias="BACKEND_CORS_ORIGINS")
+    ffmpeg_bin: str = Field(default="ffmpeg", alias="FFMPEG_BIN")
+    ffprobe_bin: str = Field(default="ffprobe", alias="FFPROBE_BIN")
+
+    @property
+    def backend_cors_origins(self) -> List[str]:
+        return [origin.strip() for origin in self.backend_cors_origins_raw.split(",") if origin.strip()]
 
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    settings = Settings()
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is required in environment or .env")
+    if not settings.jwt_secret:
+        raise RuntimeError("JWT_SECRET is required in environment or .env")
+    return settings

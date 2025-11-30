@@ -13,3 +13,8 @@ dist/
 .DS_Store
 
 backend/alembic/versions/*.py
+media/
+frontend/node_modules/
+backend/.env
+backend/venv/
+backend/.pytest_cache/

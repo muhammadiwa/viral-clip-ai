@@ -1,16 +1,27 @@
+import sys
+from pathlib import Path
 from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-from app.core.config import get_settings
-from app.db.base import Base
+# Ensure backend package is importable when running Alembic from CLI
+BASE_DIR = Path(__file__).resolve().parents[1]
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
+from app.core.config import get_settings  # noqa: E402
+from app.db.base import Base  # noqa: E402
 
 config = context.config
 settings = get_settings()
 config.set_main_option("sqlalchemy.url", settings.database_url)
 
+# Some environments may not ship logging sections; guard to avoid KeyError.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    try:
+        fileConfig(config.config_file_name)
+    except Exception:
+        pass
 
 target_metadata = Base.metadata
 
