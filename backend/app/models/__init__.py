@@ -7,6 +7,7 @@ from app.models.subtitle import SubtitleSegment, SubtitleStyle
 from app.models.brand import BrandKit
 from app.models.audio import AudioConfig
 from app.models.export import ExportJob
+from app.models.analysis import VideoAnalysis, SegmentAnalysis, ClipAnalysis
 
 __all__ = [
     "User",
@@ -23,4 +24,7 @@ __all__ = [
     "BrandKit",
     "AudioConfig",
     "ExportJob",
+    "VideoAnalysis",
+    "SegmentAnalysis",
+    "ClipAnalysis",
 ]

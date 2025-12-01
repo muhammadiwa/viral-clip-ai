@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment
-from app.services import transcription, segmentation, virality, subtitles, exporting, utils
+from app.services import transcription, segmentation, subtitles, exporting, utils
+from app.services import virality_enhanced as virality
+from app.services import enhanced_segmentation
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -37,16 +39,35 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
     video.status = "processing"
     db.commit()
 
+    # Step 1: Transcribe video
+    logger.info("worker.transcription_start", video_id=video.id)
     segments = transcription.transcribe_video(db, video)
     job.progress = 40.0
     job.result_summary = {"transcript_segments": len(segments)}
     db.commit()
 
-    scenes = segmentation.detect_scenes(db, video)
-    job.progress = 80.0
-    summary = job.result_summary or {}
-    summary["scene_segments"] = len(scenes)
-    job.result_summary = summary
+    # Step 2: Enhanced segmentation with multi-modal analysis
+    logger.info("worker.segmentation_start", video_id=video.id)
+    try:
+        scenes, seg_metadata = enhanced_segmentation.create_enhanced_segments(
+            db, video, segments
+        )
+        job.progress = 80.0
+        summary = job.result_summary or {}
+        summary["scene_segments"] = len(scenes)
+        summary["segmentation_type"] = "enhanced_multi_modal"
+        summary.update(seg_metadata)
+        job.result_summary = summary
+    except Exception as e:
+        # Fallback to basic segmentation if enhanced fails
+        logger.warning("worker.enhanced_seg_failed", error=str(e), video_id=video.id)
+        scenes = segmentation.detect_scenes(db, video)
+        job.progress = 80.0
+        summary = job.result_summary or {}
+        summary["scene_segments"] = len(scenes)
+        summary["segmentation_type"] = "basic_fallback"
+        job.result_summary = summary
+    
     video.status = "analyzed"
     db.commit()
     _complete_job(db, job)
