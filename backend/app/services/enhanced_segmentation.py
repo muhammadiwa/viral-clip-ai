@@ -25,6 +25,7 @@ def analyze_video_comprehensive(
     video_path: str,
     duration: float,
     transcripts: List[TranscriptSegment],
+    progress_callback: callable = None,
 ) -> Dict[str, Any]:
     """
     Perform comprehensive multi-modal analysis of a video.
@@ -37,28 +38,45 @@ def analyze_video_comprehensive(
     """
     logger.info("enhanced_seg.comprehensive_start", video_path=video_path, duration=duration)
     
-    # 1. Audio Analysis
+    # 1. Audio Analysis (30% of work)
+    if progress_callback:
+        progress_callback(0.0, "Analyzing audio patterns...")
     audio_timeline = audio_analysis.calculate_energy_timeline(
         video_path, duration, window_size=1.0
     )
+    if progress_callback:
+        progress_callback(0.2, "Finding audio peaks...")
     audio_peaks = audio_analysis.find_audio_peaks(audio_timeline, min_duration=5.0, top_n=20)
     
-    # 2. Visual Analysis
+    # 2. Visual Analysis (40% of work)
+    if progress_callback:
+        progress_callback(0.3, "Analyzing visual content...")
     visual_timeline = visual_analysis.calculate_visual_timeline(
         video_path, duration, sample_interval=1.0
     )
+    if progress_callback:
+        progress_callback(0.6, "Finding visual peaks...")
     visual_peaks = visual_analysis.find_visual_peaks(visual_timeline, min_duration=5.0, top_n=20)
     
-    # 3. Transcript/Sentiment Analysis
+    # 3. Transcript/Sentiment Analysis (20% of work)
+    if progress_callback:
+        progress_callback(0.7, "Analyzing transcript sentiment...")
     transcript_analysis = sentiment_analysis.analyze_transcript_segments(transcripts)
+    if progress_callback:
+        progress_callback(0.85, "Finding viral moments...")
     viral_moments = sentiment_analysis.find_viral_moments_from_transcript(
         transcript_analysis, min_score=0.3
     )
     
-    # 4. Combine into unified timeline
+    # 4. Combine into unified timeline (10% of work)
+    if progress_callback:
+        progress_callback(0.9, "Merging analysis results...")
     combined_timeline = _merge_timelines(
         audio_timeline, visual_timeline, transcript_analysis, duration
     )
+    
+    if progress_callback:
+        progress_callback(1.0, "Analysis complete")
     
     logger.info(
         "enhanced_seg.comprehensive_done",
@@ -233,6 +251,7 @@ def create_enhanced_segments(
     db: Session,
     video: VideoSource,
     transcripts: List[TranscriptSegment],
+    progress_callback: callable = None,
 ) -> Tuple[List[SceneSegment], Dict[str, Any]]:
     """
     Create enhanced scene segments using multi-modal analysis.
@@ -250,16 +269,26 @@ def create_enhanced_segments(
     
     logger.info("enhanced_seg.create_start", video_id=video.id, duration=duration)
     
-    # Perform comprehensive analysis
-    analysis = analyze_video_comprehensive(video.file_path, duration, transcripts)
+    # Perform comprehensive analysis (80% of work)
+    def analysis_progress(progress: float, message: str):
+        if progress_callback:
+            progress_callback(progress * 0.8, message)
     
-    # Find engagement peaks
+    analysis = analyze_video_comprehensive(video.file_path, duration, transcripts, analysis_progress)
+    
+    # Find engagement peaks (10% of work)
+    if progress_callback:
+        progress_callback(0.8, "Finding engagement peaks...")
+    
     peaks = find_engagement_peaks(
         analysis["combined_timeline"],
         min_duration=10.0,
         max_duration=90.0,
         top_n=15,
     )
+    
+    if progress_callback:
+        progress_callback(0.85, "Merging peak data...")
     
     # Also include audio and visual peaks that might have been missed
     all_peak_times = set()
@@ -277,6 +306,9 @@ def create_enhanced_segments(
     for vp in analysis["visual_peaks"][:10]:
         if not any(abs(vp["start_time"] - p[0]) < 5 for p in all_peak_times):
             all_peak_times.add((vp["start_time"], vp["end_time"]))
+    
+    if progress_callback:
+        progress_callback(0.9, "Creating scene segments...")
     
     # Clear existing segments
     db.query(SceneSegment).filter(SceneSegment.video_source_id == video.id).delete()
@@ -323,6 +355,9 @@ def create_enhanced_segments(
             t += window
     
     db.commit()
+    
+    if progress_callback:
+        progress_callback(1.0, f"Created {len(segments)} segments")
     
     # Prepare metadata
     metadata = {

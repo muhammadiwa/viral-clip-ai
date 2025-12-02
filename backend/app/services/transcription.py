@@ -37,9 +37,18 @@ def _transcribe_chunk(client, audio_path: str, model: str) -> Tuple[List[dict], 
     return raw_segments, usage_dict
 
 
-def transcribe_video(db: Session, video: VideoSource) -> List[TranscriptSegment]:
+def transcribe_video(
+    db: Session,
+    video: VideoSource,
+    progress_callback: callable = None,
+) -> List[TranscriptSegment]:
     """
     Extract audio via ffmpeg, chunk if long, and transcribe using OpenAI Whisper.
+    
+    Args:
+        db: Database session
+        video: Video to transcribe
+        progress_callback: Optional callback(chunk_num, total_chunks, message)
     """
     if not video.file_path:
         raise ValueError("Video file_path missing for transcription")
@@ -95,6 +104,10 @@ def transcribe_video(db: Session, video: VideoSource) -> List[TranscriptSegment]
             start_sec=start,
             duration_sec=chunk_dur,
         )
+        
+        # Report progress
+        if progress_callback:
+            progress_callback(chunk_idx, total_chunks, f"Processing chunk {chunk_idx}/{total_chunks}")
 
         if not utils.extract_audio(video.file_path, str(chunk_path), start=start, duration=chunk_dur):
             logger.warning("transcription.chunk_audio_failed", video_id=video.id, chunk=chunk_idx)

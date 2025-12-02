@@ -60,6 +60,7 @@ def render_export(
     use_brand_kit: bool = True,
     use_ai_dub: bool = True,
     bgm_path: Optional[str] = None,
+    progress_callback: callable = None,
 ) -> ExportJob:
     """
     Render clip to MP4 using ffmpeg: cut, scale, overlay subtitles/brand, mix audio + dub.
@@ -86,9 +87,13 @@ def render_export(
     # Optional dub audio
     dub_path = None
     if use_ai_dub:
+        if progress_callback:
+            progress_callback(0.1, "Generating AI dubbing...")
         dub_path = dubbing.synthesize_dub(db, clip, language=clip.language)
         export_job.progress = 30.0
         db.commit()
+        if progress_callback:
+            progress_callback(0.3, "Dubbing complete")
 
     # Brand overlay
     logo_path = None
@@ -163,9 +168,13 @@ def render_export(
     output_path = output_dir / f"{export_job.id}.mp4"
     export_fps = export_job.fps or int(utils.probe_fps(video.file_path) or 30)
 
+    if progress_callback:
+        progress_callback(0.35, "Starting video render...")
+
     cmd = [
         settings.ffmpeg_bin,
         "-y",
+        "-progress", "pipe:1",  # Enable progress output
         *inputs,
         "-filter_complex",
         ";".join(filter_complex_parts),
@@ -186,7 +195,13 @@ def render_export(
         "-shortest",
         str(output_path),
     ]
-    code, _, err = utils.run_cmd(cmd)
+    
+    # Run with progress tracking
+    code, _, err = utils.run_cmd_with_progress(
+        cmd, 
+        clip.duration_sec,
+        lambda p, m: progress_callback(0.35 + p * 0.6, m) if progress_callback else None
+    )
     if code != 0:
         logger.error("export.ffmpeg_failed", error=err)
         export_job.status = "failed"

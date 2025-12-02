@@ -77,6 +77,22 @@ def list_videos(
     return videos
 
 
+@router.get("/videos/{video_id}", response_model=VideoSourceOut)
+def get_video(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    video = (
+        db.query(VideoSource)
+        .filter(VideoSource.id == video_id, VideoSource.user_id == current_user.id)
+        .first()
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
+
 @router.get("/videos/{video_id}/transcript", response_model=List[TranscriptSegmentOut])
 def get_transcript(
     video_id: int,

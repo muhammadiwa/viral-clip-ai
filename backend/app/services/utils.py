@@ -37,6 +37,80 @@ def run_cmd(cmd: List[str]) -> Tuple[int, str, str]:
     return proc.returncode, out, err
 
 
+def run_cmd_with_progress(
+    cmd: List[str],
+    duration_sec: float,
+    progress_callback: callable = None,
+) -> Tuple[int, str, str]:
+    """
+    Run ffmpeg command with real-time progress tracking.
+    
+    Args:
+        cmd: Command list (must include -progress pipe:1 for ffmpeg)
+        duration_sec: Expected duration in seconds for progress calculation
+        progress_callback: Callback(progress_0_to_1, message)
+    
+    Returns:
+        (exit_code, stdout, stderr)
+    """
+    logger.info("exec.cmd_with_progress", cmd=" ".join(shlex.quote(c) for c in cmd))
+    
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+        universal_newlines=True,
+    )
+    
+    stderr_lines = []
+    stdout_lines = []
+    
+    import re
+    import threading
+    
+    def read_stderr():
+        """Read stderr in background thread."""
+        for line in proc.stderr:
+            stderr_lines.append(line)
+    
+    # Start stderr reader thread
+    stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+    stderr_thread.start()
+    
+    # Read stdout for progress
+    time_pattern = re.compile(r"out_time_ms=(\d+)")
+    last_progress = 0.0
+    
+    for line in proc.stdout:
+        stdout_lines.append(line)
+        
+        # Parse ffmpeg progress output
+        match = time_pattern.search(line)
+        if match and duration_sec > 0:
+            time_ms = int(match.group(1))
+            time_sec = time_ms / 1_000_000  # Convert microseconds to seconds
+            progress = min(1.0, time_sec / duration_sec)
+            
+            # Only update if progress changed significantly (avoid spam)
+            if progress - last_progress >= 0.05 or progress >= 0.99:
+                last_progress = progress
+                if progress_callback:
+                    progress_callback(
+                        progress,
+                        f"Rendering: {progress * 100:.0f}% ({time_sec:.1f}s / {duration_sec:.1f}s)"
+                    )
+    
+    proc.wait()
+    stderr_thread.join(timeout=1)
+    
+    stdout = "".join(stdout_lines)
+    stderr = "".join(stderr_lines)
+    
+    return proc.returncode, stdout, stderr
+
+
 def probe_duration(path: str) -> Optional[float]:
     cmd = [
         settings.ffprobe_bin,
@@ -309,6 +383,7 @@ def render_clip_preview(
     subtitles: Optional[List[Dict[str, Any]]] = None,
     subtitle_style: Optional[Dict[str, Any]] = None,
     subtitle_enabled: bool = True,
+    progress_callback: callable = None,
 ) -> bool:
     """
     Render clip preview with optional subtitles and styling.
@@ -357,6 +432,7 @@ def render_clip_preview(
     cmd = [
         settings.ffmpeg_bin,
         "-y",
+        "-progress", "pipe:1" if progress_callback else "-",
         "-ss", str(start_sec),
         "-i", source_path,
         "-t", str(duration_sec),
@@ -369,7 +445,11 @@ def render_clip_preview(
         "-movflags", "+faststart",
         output_path,
     ]
-    code, _, err = run_cmd(cmd)
+    
+    if progress_callback:
+        code, _, err = run_cmd_with_progress(cmd, duration_sec, progress_callback)
+    else:
+        code, _, err = run_cmd(cmd)
     
     # If subtitle rendering failed, retry without subtitles
     if code != 0 and srt_path is not None:
@@ -388,6 +468,7 @@ def render_clip_preview(
         cmd_no_subs = [
             settings.ffmpeg_bin,
             "-y",
+            "-progress", "pipe:1" if progress_callback else "-",
             "-ss", str(start_sec),
             "-i", source_path,
             "-t", str(duration_sec),
@@ -400,7 +481,11 @@ def render_clip_preview(
             "-movflags", "+faststart",
             output_path,
         ]
-        code, _, err = run_cmd(cmd_no_subs)
+        
+        if progress_callback:
+            code, _, err = run_cmd_with_progress(cmd_no_subs, duration_sec, progress_callback)
+        else:
+            code, _, err = run_cmd(cmd_no_subs)
     
     # Cleanup temp srt file
     if srt_path and srt_path.exists():

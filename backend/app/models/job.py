@@ -20,6 +20,10 @@ class ProcessingJob(Base, TimestampMixin):
     job_type: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, default="queued")  # queued|running|completed|failed
     progress: Mapped[float] = mapped_column(Float, default=0.0)
+    progress_message: Mapped[Optional[str]] = mapped_column(String)  # Current step description
+    current_step: Mapped[Optional[str]] = mapped_column(String)  # Current step name
+    total_steps: Mapped[Optional[int]] = mapped_column(Integer)  # Total steps in this job
+    current_step_num: Mapped[Optional[int]] = mapped_column(Integer)  # Current step number
     payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
     result_summary: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON)
     error_message: Mapped[Optional[str]] = mapped_column(Text)

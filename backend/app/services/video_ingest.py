@@ -29,6 +29,7 @@ async def create_from_youtube(
     aspect_ratio: str,
     clip_length_preset: str,
     subtitle: bool,
+    progress_callback: callable = None,
 ) -> tuple[VideoSource, ProcessingJob]:
     media_root = settings.media_root
     user_dir = os.path.join(media_root, "videos", str(user.id))
@@ -49,11 +50,26 @@ async def create_from_youtube(
     if YoutubeDL is None:
         raise RuntimeError("yt_dlp not installed; cannot download YouTube video")
     target_path = os.path.join(user_dir, f"{uuid.uuid4().hex}.mp4")
+    
+    # Progress hook for yt-dlp
+    def progress_hook(d):
+        if progress_callback and d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate', 0)
+            downloaded = d.get('downloaded_bytes', 0)
+            if total > 0:
+                percent = (downloaded / total) * 100
+                speed = d.get('speed', 0)
+                speed_str = f"{speed / 1024 / 1024:.1f} MB/s" if speed else "calculating..."
+                progress_callback(percent, f"Downloading: {percent:.1f}% ({speed_str})")
+        elif progress_callback and d['status'] == 'finished':
+            progress_callback(100, "Download complete, processing...")
+    
     ydl_opts = {
         "format": "bestvideo+bestaudio/best",
         "outtmpl": target_path,
         "merge_output_format": "mp4",
         "quiet": True,
+        "progress_hooks": [progress_hook],
     }
 
     max_retries = settings.youtube_download_retries
@@ -62,6 +78,9 @@ async def create_from_youtube(
     for attempt in range(1, max_retries + 1):
         try:
             logger.info("youtube.download_attempt", attempt=attempt, max_retries=max_retries, url=youtube_url)
+            if progress_callback:
+                progress_callback(0, f"Starting download (attempt {attempt}/{max_retries})...")
+            
             with YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(youtube_url, download=False)
                 if info:
@@ -80,6 +99,10 @@ async def create_from_youtube(
                         video.thumbnail_path = thumbnail_url
                         logger.info("youtube.thumbnail_found", thumbnail_url=thumbnail_url)
                 ydl.download([youtube_url])
+            
+            if progress_callback:
+                progress_callback(100, "Analyzing video...")
+            
             video.file_path = target_path
             duration = utils.probe_duration(target_path)
             if duration:
@@ -93,6 +116,8 @@ async def create_from_youtube(
             last_error = exc
             logger.warning("youtube.download_failed", attempt=attempt, error=str(exc))
             if attempt < max_retries:
+                if progress_callback:
+                    progress_callback(0, f"Retrying... (attempt {attempt + 1}/{max_retries})")
                 time.sleep(settings.retry_delay_seconds)
             else:
                 video.status = "failed"

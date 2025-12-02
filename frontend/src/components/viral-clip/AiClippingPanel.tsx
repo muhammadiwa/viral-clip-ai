@@ -85,6 +85,10 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
 
   if (!video) return null;
 
+  // Check if video is ready for clip generation
+  const isVideoReady = video.status === "ready" || video.status === "analyzed";
+  const isProcessing = video.status === "processing" || video.status === "pending";
+
   return (
     <section className="mt-8 rounded-3xl bg-white p-5 shadow-sm border border-slate-100">
       <div className="flex items-center gap-4 mb-4">
@@ -110,6 +114,20 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
           </div>
         </div>
       </div>
+
+      {/* Processing Warning Banner */}
+      {isProcessing && (
+        <div className="mb-4 p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3">
+          <svg className="animate-spin h-5 w-5 text-blue-600 flex-shrink-0" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <div>
+            <div className="text-sm font-medium text-blue-800">Video sedang diproses</div>
+            <div className="text-xs text-blue-600">Tunggu sampai proses selesai sebelum generate clips</div>
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-4 gap-4 text-xs">
         <div>
@@ -203,9 +221,8 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
             <button
               key={style.id}
               onClick={() => setSelectedStyleId(style.id)}
-              className={`rounded-xl border px-3 py-2 text-left text-xs ${
-                selectedStyleId === style.id ? "border-primary bg-primary/5" : "border-slate-200"
-              }`}
+              className={`rounded-xl border px-3 py-2 text-left text-xs ${selectedStyleId === style.id ? "border-primary bg-primary/5" : "border-slate-200"
+                }`}
             >
               <div className="font-semibold text-slate-800">{style.name}</div>
               <div className="text-[11px] text-slate-500">
@@ -222,12 +239,14 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
         </div>
         <motion.button
           onClick={() => mutation.mutate()}
-          disabled={mutation.isPending}
-          className="inline-flex items-center justify-center rounded-full bg-primary text-white px-5 py-3 text-sm font-semibold shadow-md disabled:opacity-60"
-          whileHover={{ scale: mutation.isPending ? 1 : 1.02 }}
-          whileTap={{ scale: mutation.isPending ? 1 : 0.98 }}
+          disabled={mutation.isPending || !isVideoReady}
+          className={`inline-flex items-center justify-center rounded-full px-5 py-3 text-sm font-semibold shadow-md disabled:opacity-60 ${isVideoReady ? "bg-primary text-white" : "bg-slate-300 text-slate-500 cursor-not-allowed"
+            }`}
+          whileHover={{ scale: mutation.isPending || !isVideoReady ? 1 : 1.02 }}
+          whileTap={{ scale: mutation.isPending || !isVideoReady ? 1 : 0.98 }}
+          title={!isVideoReady ? "Video masih diproses, tunggu sampai selesai" : ""}
         >
-          {mutation.isPending ? "Generating…" : "Generate Clips"}
+          {mutation.isPending ? "Generating…" : !isVideoReady ? "Waiting for video..." : "Generate Clips"}
         </motion.button>
       </div>
     </section>
