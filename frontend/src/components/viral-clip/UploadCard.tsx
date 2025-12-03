@@ -26,26 +26,18 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
       if (youtubeUrl) {
         const form = new FormData();
         form.append("youtube_url", youtubeUrl);
-        form.append("video_type", "podcast");
-        form.append("aspect_ratio", "9:16");
-        form.append("clip_length_preset", "auto_0_60");
-        form.append("subtitle", "true");
         const res = await api.post<VideoCreateResponse>("/viral-clip/video/youtube", form);
         onVideoCreated(res.data.video, res.data.job?.id);
       } else if (file) {
         const form = new FormData();
         form.append("file", file);
-        form.append("video_type", "podcast");
-        form.append("aspect_ratio", "9:16");
-        form.append("clip_length_preset", "auto_0_60");
-        form.append("subtitle", "true");
         const res = await api.post<VideoCreateResponse>("/viral-clip/video/upload", form);
         onVideoCreated(res.data.video, res.data.job?.id);
       }
       setYoutubeUrl("");
       setFile(null);
       await qc.invalidateQueries({ queryKey: ["videos"] });
-      setStatus("Job created. Worker will auto-transcribe & segment.");
+      setStatus("Video uploaded! Processing will start automatically.");
     } catch (err: any) {
       setStatus(err?.response?.data?.detail || "Upload failed");
     } finally {
