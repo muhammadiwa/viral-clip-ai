@@ -6,6 +6,7 @@ import { api } from "../../lib/apiClient";
 import { VideoSource, ClipBatch, Clip, SubtitleStyle } from "../../types/api";
 import ClipsGrid from "../../components/viral-clip/ClipsGrid";
 import ClipDetailModal from "../../components/viral-clip/ClipDetailModal";
+import SubtitleStylePreview from "../../components/viral-clip/SubtitleStylePreview";
 
 const VideoDetailPage: React.FC = () => {
     const { videoId } = useParams<{ videoId: string }>();
@@ -439,42 +440,37 @@ const VideoDetailPage: React.FC = () => {
                     {subtitleEnabled && styles && styles.length > 0 && (
                         <div className="mt-6">
                             <div className="text-sm font-medium text-slate-600 mb-3">Subtitle Style</div>
-                            <div className="grid grid-cols-4 gap-3 max-h-80 overflow-y-auto pr-2">
+                            <div className="grid grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
                                 {styles.map((style) => {
                                     const hasAnimation = style.style_json.animation === "word_highlight";
-                                    const highlightColor = String(style.style_json.highlightColor || "#FFD700");
+                                    const isSelected = selectedStyleId === style.id;
 
                                     return (
                                         <button
                                             key={style.id}
                                             onClick={() => setSelectedStyleId(style.id)}
-                                            className={`rounded-xl border px-4 py-3 text-left transition-all ${selectedStyleId === style.id
-                                                ? "border-primary bg-primary/5 ring-2 ring-primary/20"
+                                            className={`rounded-xl border overflow-hidden text-left transition-all ${isSelected
+                                                ? "border-primary ring-2 ring-primary/30"
                                                 : "border-slate-200 hover:border-slate-300"
                                                 }`}
                                         >
-                                            <div className="flex items-center gap-2">
-                                                <div className="font-semibold text-sm text-slate-800">{style.name}</div>
-                                                {hasAnimation && (
-                                                    <span
-                                                        className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white"
-                                                        style={{ backgroundColor: highlightColor }}
-                                                    >
-                                                        KARAOKE
-                                                    </span>
-                                                )}
-                                            </div>
-                                            <div className="text-xs text-slate-500 mt-1">
-                                                {String(style.style_json.fontFamily || "Sans")}
-                                                {hasAnimation && ` • ${String(style.style_json.highlightStyle || "color")}`}
+                                            {/* Live Preview */}
+                                            <SubtitleStylePreview
+                                                styleJson={style.style_json as Record<string, unknown>}
+                                                isSelected={isSelected}
+                                            />
+
+                                            {/* Style Info */}
+                                            <div className="p-3 bg-white">
+                                                <div className="font-semibold text-sm text-slate-800 truncate">{style.name}</div>
+                                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                                    {String(style.style_json.fontFamily || "Sans")}
+                                                </div>
                                             </div>
                                         </button>
                                     );
                                 })}
                             </div>
-                            <p className="text-xs text-slate-400 mt-2">
-                                💡 Styles with "KARAOKE" badge highlight each word as it's spoken
-                            </p>
                         </div>
                     )}
 

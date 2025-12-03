@@ -231,18 +231,17 @@ SUBTITLE_STYLES = [
         "style_json": {
             "fontFamily": "Arial Black",
             "fontSize": 76,
-            "fontColor": "#00FFFF",  # Cyan
+            "fontColor": "#FFFFFF",
             "bold": True,
-            "outlineWidth": 2,
-            "outlineColor": "#00FFFF",
+            "outlineWidth": 3,
+            "outlineColor": "#000000",
             "shadowOffset": 0,
             "alignment": 2,
             "position": "bottom",
             "animation": "word_highlight",
-            "highlightColor": "#FF00FF",  # Magenta
-            "highlightStyle": "neon_glow",
-            "glowRadius": 15,
-            "glowColor": "#FF00FF",
+            "highlightColor": "#00FFFF",  # Cyan glow
+            "highlightStyle": "glow",
+            "glowColor": "#00FFFF",
         },
         "is_default_global": False,
     },

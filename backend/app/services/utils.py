@@ -272,6 +272,14 @@ def _write_ass_for_preview(
     
     This creates an ASS subtitle file that highlights each word as it's spoken,
     similar to karaoke style subtitles popular on TikTok/Reels.
+    
+    Supported highlight styles:
+    - color: Change text color of current word
+    - background: Add background box behind current word
+    - scale: Scale up current word
+    - glow: Add glow/blur effect around current word (simulated with shadow)
+    - underline: Add underline to current word
+    - gradient: Use highlight color (ASS doesn't support true gradients)
     """
     # Get dimensions
     if aspect_ratio == "9:16":
@@ -330,6 +338,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     
     events = []
     
+    # Supported highlight styles for word-by-word animation
+    supported_highlights = ["color", "background", "scale", "glow", "neon_glow", "underline", "gradient", "comic_burst"]
+    
     for seg in subtitles:
         start = max(seg["start_time_sec"] - clip_start, 0)
         end = max(seg["end_time_sec"] - clip_start, start + 0.1)
@@ -338,7 +349,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if not text:
             continue
         
-        if animation == "word_highlight" and highlight_style in ["color", "background", "scale"]:
+        if animation == "word_highlight" and highlight_style in supported_highlights:
             # Word-by-word karaoke effect
             words = text.split()
             if len(words) > 1:
@@ -352,15 +363,48 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     line_parts = []
                     for i, w in enumerate(words):
                         if i == word_idx:
-                            # Current word - highlighted
+                            # Current word - highlighted based on style
                             if highlight_style == "color":
+                                # Simple color change
                                 line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
+                            
                             elif highlight_style == "background":
-                                # Use border style 3 for background box
+                                # Background box using border style 3
                                 line_parts.append(f"{{\\3c{secondary_color}\\bord8}}{w}{{\\3c{outline_color_ass}\\bord{outline_width}}}")
+                            
                             elif highlight_style == "scale":
+                                # Scale up current word
                                 scale = int(style.get("scaleAmount", 1.2) * 100)
                                 line_parts.append(f"{{\\fscx{scale}\\fscy{scale}\\c{secondary_color}}}{w}{{\\fscx100\\fscy100\\c{primary_color}}}")
+                            
+                            elif highlight_style in ["glow", "neon_glow"]:
+                                # Glow effect - simulated with colored shadow + blur
+                                # Use \blur for glow effect and colored outline
+                                glow_radius = style.get("glowRadius", 10)
+                                blur_amount = min(glow_radius, 5)  # ASS blur max ~5 looks good
+                                line_parts.append(
+                                    f"{{\\c{secondary_color}\\3c{secondary_color}\\blur{blur_amount}\\bord{outline_width + 2}}}{w}"
+                                    f"{{\\c{primary_color}\\3c{outline_color_ass}\\blur0\\bord{outline_width}}}"
+                                )
+                            
+                            elif highlight_style == "underline":
+                                # Underline effect using ASS underline tag
+                                line_parts.append(f"{{\\u1\\c{secondary_color}}}{w}{{\\u0\\c{primary_color}}}")
+                            
+                            elif highlight_style == "gradient":
+                                # ASS doesn't support true gradients, use highlight color
+                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
+                            
+                            elif highlight_style == "comic_burst":
+                                # Comic effect - scale + color + slight rotation
+                                line_parts.append(
+                                    f"{{\\fscx130\\fscy130\\c{secondary_color}\\frz-3}}{w}"
+                                    f"{{\\fscx100\\fscy100\\c{primary_color}\\frz0}}"
+                                )
+                            
+                            else:
+                                # Fallback to color change
+                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
                         else:
                             line_parts.append(w)
                     
@@ -373,6 +417,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 events.append(
                     f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{text}"
                 )
+        
+        elif animation == "typewriter":
+            # Typewriter effect - characters appear one by one
+            chars = list(text)
+            if len(chars) > 0:
+                char_duration = (end - start) / len(chars)
+                
+                for char_idx in range(1, len(chars) + 1):
+                    char_start = start + ((char_idx - 1) * char_duration)
+                    char_end = start + (char_idx * char_duration)
+                    
+                    # Show text up to current character
+                    visible_text = text[:char_idx]
+                    events.append(
+                        f"Dialogue: 0,{_format_ass_timestamp(char_start)},{_format_ass_timestamp(char_end)},Default,,0,0,0,,{visible_text}"
+                    )
+        
         else:
             # No animation, regular subtitle
             events.append(
@@ -582,11 +643,11 @@ def render_clip_preview(
     if subtitle_enabled and subtitles and len(subtitles) > 0:
         output_dir = Path(output_path).parent
         
-        # Check if style has animation (karaoke/highlight)
+        # Check if style has animation (karaoke/highlight or typewriter)
         animation = subtitle_style.get("animation", "none") if subtitle_style else "none"
         
-        if animation == "word_highlight":
-            # Use ASS format for word-by-word highlighting
+        if animation in ["word_highlight", "typewriter"]:
+            # Use ASS format for animated subtitles (word highlight or typewriter)
             sub_path = output_dir / "preview_subs.ass"
             _write_ass_for_preview(subtitles, start_sec, sub_path, subtitle_style, aspect_ratio)
             sub_escaped = _escape_ffmpeg_path(str(sub_path))
