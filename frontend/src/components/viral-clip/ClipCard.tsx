@@ -27,9 +27,8 @@ const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
   return (
     <motion.button
       onClick={onSelect}
-      className={`relative rounded-2xl border text-left overflow-hidden bg-white shadow-sm ${
-        active ? "border-primary shadow-lg shadow-primary/10" : "border-slate-200"
-      }`}
+      className={`relative rounded-2xl border text-left overflow-hidden bg-white shadow-sm ${active ? "border-primary shadow-lg shadow-primary/10" : "border-slate-200"
+        }`}
       whileHover={{ y: -3 }}
     >
       <div className="aspect-[9/16] bg-black flex items-center justify-center text-xs text-slate-400 relative overflow-hidden">
@@ -66,15 +65,22 @@ const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
       <div className="absolute top-2 right-2 text-[11px] bg-white/90 text-slate-700 rounded-full px-2 py-1">
         {formatDuration(clip.duration_sec)}
       </div>
-      <div className="p-3 space-y-1">
+      <div className="p-3 space-y-2">
         <div className="text-sm font-semibold line-clamp-2">{clip.title || "Viral moment"}</div>
+        {clip.description && (
+          <div className="text-[11px] text-slate-600 line-clamp-2">{clip.description}</div>
+        )}
         <div className="text-[11px] text-slate-500 flex items-center gap-2">
           <span className="uppercase tracking-wide">{clip.language || "EN"}</span>
-          <span className={`px-2 py-0.5 rounded-full capitalize ${
-            clip.status === "ready" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100"
-          }`}>
-            {clip.status}
-          </span>
+          {clip.status !== "ready" && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">
+              <svg className="animate-spin h-2.5 w-2.5" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+              </svg>
+              Processing
+            </span>
+          )}
         </div>
         <div className="flex gap-2 text-[11px]">
           {hasVideo && (

@@ -96,8 +96,7 @@ async def create_from_youtube(
                             best_thumb = max(thumbnails, key=lambda t: t.get("height", 0) or 0)
                             thumbnail_url = best_thumb.get("url")
                     if thumbnail_url:
-                        video.thumbnail_path = thumbnail_url
-                        logger.info("youtube.thumbnail_found", thumbnail_url=thumbnail_url)
+                        logger.info("youtube.thumbnail_url_found", thumbnail_url=thumbnail_url)
                 ydl.download([youtube_url])
             
             if progress_callback:
@@ -107,6 +106,33 @@ async def create_from_youtube(
             duration = utils.probe_duration(target_path)
             if duration:
                 video.duration_seconds = duration
+            
+            # Download YouTube original thumbnail and save locally
+            thumb_dir = utils.ensure_dir(Path(settings.media_root) / "thumbnails" / "videos" / str(video.id))
+            thumb_path = thumb_dir / "thumb.jpg"
+            
+            thumbnail_saved = False
+            if thumbnail_url:
+                # Download YouTube thumbnail
+                thumbnail_saved = utils.download_thumbnail(thumbnail_url, str(thumb_path))
+                if thumbnail_saved:
+                    try:
+                        relative = thumb_path.relative_to(Path(settings.media_root))
+                        video.thumbnail_path = f"{settings.media_base_url}/{relative.as_posix()}"
+                        logger.info("youtube.thumbnail_downloaded", video_id=video.id, url=thumbnail_url)
+                    except Exception:
+                        video.thumbnail_path = str(thumb_path)
+            
+            # Fallback: generate from video if download failed
+            if not thumbnail_saved:
+                thumb_timestamp = (duration or 10) * 0.1
+                if utils.render_thumbnail(target_path, str(thumb_path), thumb_timestamp):
+                    try:
+                        relative = thumb_path.relative_to(Path(settings.media_root))
+                        video.thumbnail_path = f"{settings.media_base_url}/{relative.as_posix()}"
+                    except Exception:
+                        video.thumbnail_path = str(thumb_path)
+                    logger.info("youtube.thumbnail_generated_fallback", video_id=video.id)
             
             db.commit()
             logger.info("youtube.download_success", video_id=video.id, attempt=attempt)

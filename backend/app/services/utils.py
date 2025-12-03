@@ -194,6 +194,36 @@ def render_thumbnail(source_path: str, output_path: str, timestamp: float) -> bo
     return True
 
 
+def download_thumbnail(url: str, output_path: str) -> bool:
+    """Download thumbnail from URL and save to local file."""
+    try:
+        import urllib.request
+        import ssl
+        
+        # Create SSL context that doesn't verify (for some YouTube URLs)
+        ctx = ssl.create_default_context()
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        
+        # Add headers to mimic browser
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        with urllib.request.urlopen(req, timeout=10, context=ctx) as response:
+            with open(output_path, 'wb') as f:
+                f.write(response.read())
+        
+        # Verify file was created and has content
+        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
+            logger.info("thumbnail.downloaded", url=url[:100], output=output_path)
+            return True
+        return False
+    except Exception as e:
+        logger.warning("thumbnail.download_failed", url=url[:100], error=str(e))
+        return False
+
+
 def _format_srt_timestamp(seconds: float) -> str:
     """Format seconds to SRT timestamp format (HH:MM:SS,mmm)."""
     hrs = int(seconds // 3600)
@@ -218,6 +248,139 @@ def _write_srt_for_preview(
         lines.append(seg["text"])
         lines.append("")
     path.write_text("\n".join(lines), encoding="utf-8")
+    return path
+
+
+def _format_ass_timestamp(seconds: float) -> str:
+    """Format seconds to ASS timestamp format (H:MM:SS.cc)."""
+    hrs = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centis = int((seconds - int(seconds)) * 100)
+    return f"{hrs}:{mins:02}:{secs:02}.{centis:02}"
+
+
+def _write_ass_for_preview(
+    subtitles: List[Dict[str, Any]],
+    clip_start: float,
+    path: Path,
+    style_json: Optional[Dict[str, Any]] = None,
+    aspect_ratio: str = "9:16",
+) -> Path:
+    """
+    Write ASS file with word-by-word karaoke highlighting.
+    
+    This creates an ASS subtitle file that highlights each word as it's spoken,
+    similar to karaoke style subtitles popular on TikTok/Reels.
+    """
+    # Get dimensions
+    if aspect_ratio == "9:16":
+        play_res_x, play_res_y = 1080, 1920
+    elif aspect_ratio == "1:1":
+        play_res_x, play_res_y = 1080, 1080
+    else:
+        play_res_x, play_res_y = 1920, 1080
+    
+    # Default style settings
+    style = style_json or {}
+    font_name = style.get("fontFamily", "Arial Black")
+    font_size = style.get("fontSize", 76)
+    font_color = style.get("fontColor", "#FFFFFF").lstrip("#")
+    outline_width = style.get("outlineWidth", 4)
+    outline_color = style.get("outlineColor", "#000000").lstrip("#")
+    bold = -1 if style.get("bold", True) else 0
+    alignment = style.get("alignment", 2)
+    margin_v = style.get("marginV", 290)
+    margin_l = style.get("marginL", 54)
+    margin_r = style.get("marginR", 54)
+    
+    # Animation settings
+    animation = style.get("animation", "none")
+    highlight_color = style.get("highlightColor", "#FFD700").lstrip("#")
+    highlight_style = style.get("highlightStyle", "color")
+    
+    # Convert colors to ASS format (&HBBGGRR)
+    def hex_to_ass(hex_color: str) -> str:
+        hex_color = hex_color.lstrip("#")
+        if len(hex_color) == 6:
+            r, g, b = hex_color[0:2], hex_color[2:4], hex_color[4:6]
+            return f"&H00{b}{g}{r}&"
+        return "&H00FFFFFF&"
+    
+    primary_color = hex_to_ass(font_color)
+    secondary_color = hex_to_ass(highlight_color)
+    outline_color_ass = hex_to_ass(outline_color)
+    
+    # ASS header
+    ass_content = f"""[Script Info]
+Title: Karaoke Subtitles
+ScriptType: v4.00+
+PlayResX: {play_res_x}
+PlayResY: {play_res_y}
+WrapStyle: 0
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,{font_name},{font_size},{primary_color},{secondary_color},{outline_color_ass},&H80000000&,{bold},0,0,0,100,100,0,0,1,{outline_width},0,{alignment},{margin_l},{margin_r},{margin_v},1
+Style: Highlight,{font_name},{font_size},{secondary_color},{primary_color},{outline_color_ass},&H80000000&,{bold},0,0,0,100,100,0,0,1,{outline_width},0,{alignment},{margin_l},{margin_r},{margin_v},1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+    
+    events = []
+    
+    for seg in subtitles:
+        start = max(seg["start_time_sec"] - clip_start, 0)
+        end = max(seg["end_time_sec"] - clip_start, start + 0.1)
+        text = seg["text"].strip()
+        
+        if not text:
+            continue
+        
+        if animation == "word_highlight" and highlight_style in ["color", "background", "scale"]:
+            # Word-by-word karaoke effect
+            words = text.split()
+            if len(words) > 1:
+                word_duration = (end - start) / len(words)
+                
+                for word_idx, word in enumerate(words):
+                    word_start = start + (word_idx * word_duration)
+                    word_end = word_start + word_duration
+                    
+                    # Build the line with current word highlighted
+                    line_parts = []
+                    for i, w in enumerate(words):
+                        if i == word_idx:
+                            # Current word - highlighted
+                            if highlight_style == "color":
+                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
+                            elif highlight_style == "background":
+                                # Use border style 3 for background box
+                                line_parts.append(f"{{\\3c{secondary_color}\\bord8}}{w}{{\\3c{outline_color_ass}\\bord{outline_width}}}")
+                            elif highlight_style == "scale":
+                                scale = int(style.get("scaleAmount", 1.2) * 100)
+                                line_parts.append(f"{{\\fscx{scale}\\fscy{scale}\\c{secondary_color}}}{w}{{\\fscx100\\fscy100\\c{primary_color}}}")
+                        else:
+                            line_parts.append(w)
+                    
+                    highlighted_text = " ".join(line_parts)
+                    events.append(
+                        f"Dialogue: 0,{_format_ass_timestamp(word_start)},{_format_ass_timestamp(word_end)},Default,,0,0,0,,{highlighted_text}"
+                    )
+            else:
+                # Single word, just show it
+                events.append(
+                    f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{text}"
+                )
+        else:
+            # No animation, regular subtitle
+            events.append(
+                f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{text}"
+            )
+    
+    ass_content += "\n".join(events)
+    path.write_text(ass_content, encoding="utf-8")
     return path
 
 
@@ -413,20 +576,33 @@ def render_clip_preview(
     scale_filter = f"scale={video_width}:{video_height}:force_original_aspect_ratio=decrease,pad={video_width}:{video_height}:(ow-iw)/2:(oh-ih)/2:black"
 
     # Prepare subtitle filter if subtitles provided and enabled
-    srt_path = None
+    sub_path = None
     video_filter = scale_filter
     
     if subtitle_enabled and subtitles and len(subtitles) > 0:
         output_dir = Path(output_path).parent
-        srt_path = output_dir / "preview_subs.srt"
-        _write_srt_for_preview(subtitles, start_sec, srt_path)
-        subtitle_filter = _build_subtitle_filter(
-            str(srt_path), 
-            subtitle_style, 
-            aspect_ratio,
-            video_width,
-            video_height,
-        )
+        
+        # Check if style has animation (karaoke/highlight)
+        animation = subtitle_style.get("animation", "none") if subtitle_style else "none"
+        
+        if animation == "word_highlight":
+            # Use ASS format for word-by-word highlighting
+            sub_path = output_dir / "preview_subs.ass"
+            _write_ass_for_preview(subtitles, start_sec, sub_path, subtitle_style, aspect_ratio)
+            sub_escaped = _escape_ffmpeg_path(str(sub_path))
+            subtitle_filter = f"ass='{sub_escaped}'"
+        else:
+            # Use SRT format for regular subtitles
+            sub_path = output_dir / "preview_subs.srt"
+            _write_srt_for_preview(subtitles, start_sec, sub_path)
+            subtitle_filter = _build_subtitle_filter(
+                str(sub_path), 
+                subtitle_style, 
+                aspect_ratio,
+                video_width,
+                video_height,
+            )
+        
         video_filter = f"{scale_filter},{subtitle_filter}"
 
     cmd = [
@@ -452,16 +628,16 @@ def render_clip_preview(
         code, _, err = run_cmd(cmd)
     
     # If subtitle rendering failed, retry without subtitles
-    if code != 0 and srt_path is not None:
+    if code != 0 and sub_path is not None:
         logger.warning(
             "ffmpeg.subtitle_render_failed_retrying_without",
             error=err,
             output_path=output_path
         )
-        # Cleanup failed srt
-        if srt_path.exists():
+        # Cleanup failed subtitle file
+        if sub_path.exists():
             try:
-                srt_path.unlink()
+                sub_path.unlink()
             except Exception:
                 pass
         # Retry without subtitles
@@ -487,10 +663,10 @@ def render_clip_preview(
         else:
             code, _, err = run_cmd(cmd_no_subs)
     
-    # Cleanup temp srt file
-    if srt_path and srt_path.exists():
+    # Cleanup temp subtitle file
+    if sub_path and sub_path.exists():
         try:
-            srt_path.unlink()
+            sub_path.unlink()
         except Exception:
             pass
     

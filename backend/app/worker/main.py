@@ -7,10 +7,8 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment
-from app.services import transcription, segmentation, subtitles, exporting, utils
-from app.services import virality_enhanced as virality
-from app.services import enhanced_segmentation
+from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment, VideoAnalysis
+from app.services import transcription, segmentation, subtitles, exporting, utils, virality
 from app.services.progress_tracker import (
     ProgressTracker,
     create_transcription_tracker,
@@ -70,18 +68,56 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
     job.result_summary = {"transcript_segments": len(segments)}
     tracker.complete_step(f"Transcribed {len(segments)} segments")
     
-    # Step 4: Audio analysis
+    # Step 4-5: Comprehensive Analysis
     tracker.start_step("audio_analysis", "Analyzing audio patterns")
-    tracker.update(0.3, "Detecting audio energy levels")
-    tracker.update(0.7, "Finding high-energy moments")
-    tracker.complete_step()
     
-    # Step 5: Visual analysis
-    tracker.start_step("visual_analysis", "Analyzing visual content")
-    tracker.update(0.3, "Detecting scene changes")
-    tracker.update(0.6, "Analyzing motion patterns")
-    tracker.update(0.9, "Detecting faces")
-    tracker.complete_step()
+    # Check if analysis already exists
+    existing_analysis = db.query(VideoAnalysis).filter(
+        VideoAnalysis.video_source_id == video.id
+    ).first()
+    
+    if existing_analysis:
+        logger.info("worker.analysis_exists", video_id=video.id)
+        tracker.update(1.0, "Using existing analysis")
+        tracker.complete_step()
+        tracker.start_step("visual_analysis", "Analyzing visual content")
+        tracker.update(1.0, "Using existing analysis")
+        tracker.complete_step()
+    else:
+        # Perform comprehensive analysis
+        def analysis_progress(progress: float, message: str):
+            tracker.update(progress, message)
+        
+        analysis_data = segmentation.analyze_video_comprehensive(
+            video.file_path, duration, segments, analysis_progress
+        )
+        tracker.complete_step()
+        
+        tracker.start_step("visual_analysis", "Analyzing visual content")
+        tracker.update(0.5, "Processing visual data")
+        
+        # Save analysis to database
+        video_analysis = VideoAnalysis(
+            video_source_id=video.id,
+            analysis_version="v2",
+            duration_analyzed=duration,
+            avg_audio_energy=analysis_data.get("avg_audio_energy", 0.5),
+            avg_visual_interest=analysis_data.get("avg_visual_interest", 0.5),
+            avg_engagement=analysis_data.get("avg_engagement", 0.5),
+            audio_peaks_count=len(analysis_data.get("audio_peaks", [])),
+            visual_peaks_count=len(analysis_data.get("visual_peaks", [])),
+            viral_moments_count=len(analysis_data.get("viral_moments", [])),
+            audio_timeline_json=analysis_data.get("audio_timeline"),
+            visual_timeline_json=analysis_data.get("visual_timeline"),
+            combined_timeline_json=analysis_data.get("combined_timeline"),
+            audio_peaks_json=analysis_data.get("audio_peaks"),
+            visual_peaks_json=analysis_data.get("visual_peaks"),
+            engagement_peaks_json=analysis_data.get("viral_moments"),
+        )
+        db.add(video_analysis)
+        db.commit()
+        logger.info("worker.analysis_saved", video_id=video.id)
+        tracker.complete_step("Analysis saved to database")
     
     # Step 6: Segmentation
     tracker.start_step("segmentation", "Creating content segments")
@@ -89,7 +125,7 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
         def segmentation_progress(progress: float, message: str):
             tracker.update(progress, message)
         
-        scenes, seg_metadata = enhanced_segmentation.create_enhanced_segments(
+        scenes, seg_metadata = segmentation.create_enhanced_segments(
             db, video, segments,
             progress_callback=segmentation_progress
         )
@@ -170,13 +206,35 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
     video_path = batch.video.file_path
     clips_rendered = 0
     
-    # Get subtitle style if specified
+    # Get subtitle style - use specified or default
     subtitle_style_json = None
     if subtitle_style_id:
         style = db.query(SubtitleStyle).filter(SubtitleStyle.id == subtitle_style_id).first()
         if style:
             subtitle_style_json = style.style_json
             logger.info("clip.using_subtitle_style", style_id=subtitle_style_id, style_name=style.name)
+    
+    # Fallback to default global style if none specified
+    if not subtitle_style_json:
+        default_style = db.query(SubtitleStyle).filter(SubtitleStyle.is_default_global == True).first()
+        if default_style:
+            subtitle_style_json = default_style.style_json
+            logger.info("clip.using_default_style", style_name=default_style.name)
+        else:
+            # Ultimate fallback - word highlight style
+            subtitle_style_json = {
+                "fontFamily": "Arial Black",
+                "fontSize": 76,
+                "fontColor": "#FFFFFF",
+                "bold": True,
+                "outlineWidth": 4,
+                "outlineColor": "#000000",
+                "alignment": 2,
+                "animation": "word_highlight",
+                "highlightColor": "#FFD700",
+                "highlightStyle": "color",
+            }
+            logger.info("clip.using_fallback_style")
     
     logger.info(
         "clip.render_config",
@@ -192,9 +250,11 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
     
     if video_path:
         total_clips = len(clips)
+        video_id = batch.video_source_id
         for idx, clip in enumerate(clips):
-            clip_dir = utils.ensure_dir(Path(settings.media_root) / "clips" / str(clip.id))
-            output_path = clip_dir / f"preview_{clip.id}.mp4"
+            # Store clips in organized structure: clips/{video_id}/{clip_id}.mp4
+            clip_dir = utils.ensure_dir(Path(settings.media_root) / "clips" / str(video_id))
+            output_path = clip_dir / f"{clip.id}.mp4"
             
             # Base progress for this clip
             base_progress = idx / total_clips

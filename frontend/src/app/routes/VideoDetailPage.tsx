@@ -17,10 +17,9 @@ const VideoDetailPage: React.FC = () => {
     const [selectedClip, setSelectedClip] = useState<Clip | undefined>();
     const [activeTab, setActiveTab] = useState<"clips" | "settings">("clips");
 
-    // Clip generation settings
-    const [videoType, setVideoType] = useState("podcast");
+    // Clip generation settings (video_type removed - AI auto-detects)
     const [aspectRatio, setAspectRatio] = useState("9:16");
-    const [clipLengthPreset, setClipLengthPreset] = useState("auto_0_60");
+    const [clipLengthPreset, setClipLengthPreset] = useState("30_60");
     const [subtitleEnabled, setSubtitleEnabled] = useState(true);
     const [includeMoments, setIncludeMoments] = useState("");
     const [timeframe, setTimeframe] = useState<[number, number]>([0, 90]);
@@ -61,7 +60,6 @@ const VideoDetailPage: React.FC = () => {
     const generateMutation = useMutation({
         mutationFn: async () => {
             const res = await api.post(`/viral-clip/videos/${videoId}/clip-batches`, {
-                video_type: videoType,
                 aspect_ratio: aspectRatio,
                 clip_length_preset: clipLengthPreset,
                 subtitle_enabled: subtitleEnabled,
@@ -214,17 +212,21 @@ const VideoDetailPage: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Status Badge */}
-                            <div className={`px-3 py-1.5 rounded-full text-xs font-semibold ${video.status === "ready" || video.status === "analyzed"
-                                    ? "bg-emerald-100 text-emerald-700"
-                                    : video.status === "processing" || video.status === "pending"
-                                        ? "bg-blue-100 text-blue-700"
-                                        : video.status === "failed"
-                                            ? "bg-rose-100 text-rose-700"
-                                            : "bg-slate-100 text-slate-700"
-                                }`}>
-                                {video.status === "analyzed" ? "Ready" : video.status}
-                            </div>
+                            {/* Status - only show if processing or failed */}
+                            {(video.status === "processing" || video.status === "pending") && (
+                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+                                    <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Processing
+                                </div>
+                            )}
+                            {video.status === "failed" && (
+                                <div className="px-3 py-1.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">
+                                    Failed
+                                </div>
+                            )}
                         </div>
 
                         {/* Quick Stats */}
@@ -243,8 +245,8 @@ const VideoDetailPage: React.FC = () => {
                 <button
                     onClick={() => setActiveTab("clips")}
                     className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === "clips"
-                            ? "bg-white text-slate-900 shadow-sm"
-                            : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                 >
                     Clips
@@ -252,8 +254,8 @@ const VideoDetailPage: React.FC = () => {
                 <button
                     onClick={() => setActiveTab("settings")}
                     className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === "settings"
-                            ? "bg-white text-slate-900 shadow-sm"
-                            : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white text-slate-900 shadow-sm"
+                        : "text-slate-600 hover:text-slate-900"
                         }`}
                 >
                     Generate New
@@ -276,19 +278,20 @@ const VideoDetailPage: React.FC = () => {
                                             setSelectedClip(undefined);
                                         }}
                                         className={`px-4 py-2 rounded-xl text-sm border transition-all ${selectedBatchId === batch.id
-                                                ? "border-primary bg-primary/5 text-primary font-medium"
-                                                : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                                            ? "border-primary bg-primary/5 text-primary font-medium"
+                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
                                             }`}
                                     >
                                         {batch.name}
-                                        <span className={`ml-2 px-2 py-0.5 rounded-full text-[10px] ${batch.status === "ready"
-                                                ? "bg-emerald-100 text-emerald-700"
-                                                : batch.status === "processing"
-                                                    ? "bg-blue-100 text-blue-700"
-                                                    : "bg-slate-100 text-slate-600"
-                                            }`}>
-                                            {batch.status}
-                                        </span>
+                                        {batch.status === "processing" && (
+                                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700">
+                                                <svg className="animate-spin h-2.5 w-2.5" fill="none" viewBox="0 0 24 24">
+                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                                                </svg>
+                                                Processing
+                                            </span>
+                                        )}
                                     </button>
                                 ))}
                             </div>
@@ -347,20 +350,8 @@ const VideoDetailPage: React.FC = () => {
 
                     <h2 className="text-lg font-semibold text-slate-900 mb-6">Generate New Clips</h2>
 
-                    {/* Settings Grid */}
-                    <div className="grid grid-cols-4 gap-4 text-sm">
-                        <div>
-                            <label className="block mb-2 text-slate-600 font-medium">Video Type</label>
-                            <select
-                                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                                value={videoType}
-                                onChange={(e) => setVideoType(e.target.value)}
-                            >
-                                <option value="podcast">Podcast</option>
-                                <option value="talking_head">Talking Head</option>
-                                <option value="gaming">Gaming</option>
-                            </select>
-                        </div>
+                    {/* Settings Grid - Video Type removed (AI auto-detects) */}
+                    <div className="grid grid-cols-3 gap-4 text-sm">
                         <div>
                             <label className="block mb-2 text-slate-600 font-medium">Aspect Ratio</label>
                             <select
@@ -380,9 +371,10 @@ const VideoDetailPage: React.FC = () => {
                                 value={clipLengthPreset}
                                 onChange={(e) => setClipLengthPreset(e.target.value)}
                             >
-                                <option value="auto_0_60">Auto (0–60s)</option>
                                 <option value="0_30">Short (0–30s)</option>
-                                <option value="0_90">Long (0–90s)</option>
+                                <option value="30_60">Medium (30–60s)</option>
+                                <option value="60_90">Long (60–90s)</option>
+                                <option value="60_180">Extra Long (1–3 min)</option>
                             </select>
                         </div>
                         <div>
@@ -447,23 +439,42 @@ const VideoDetailPage: React.FC = () => {
                     {subtitleEnabled && styles && styles.length > 0 && (
                         <div className="mt-6">
                             <div className="text-sm font-medium text-slate-600 mb-3">Subtitle Style</div>
-                            <div className="grid grid-cols-4 gap-3">
-                                {styles.map((style) => (
-                                    <button
-                                        key={style.id}
-                                        onClick={() => setSelectedStyleId(style.id)}
-                                        className={`rounded-xl border px-4 py-3 text-left transition-all ${selectedStyleId === style.id
-                                                ? "border-primary bg-primary/5"
+                            <div className="grid grid-cols-4 gap-3 max-h-80 overflow-y-auto pr-2">
+                                {styles.map((style) => {
+                                    const hasAnimation = style.style_json.animation === "word_highlight";
+                                    const highlightColor = String(style.style_json.highlightColor || "#FFD700");
+
+                                    return (
+                                        <button
+                                            key={style.id}
+                                            onClick={() => setSelectedStyleId(style.id)}
+                                            className={`rounded-xl border px-4 py-3 text-left transition-all ${selectedStyleId === style.id
+                                                ? "border-primary bg-primary/5 ring-2 ring-primary/20"
                                                 : "border-slate-200 hover:border-slate-300"
-                                            }`}
-                                    >
-                                        <div className="font-semibold text-sm text-slate-800">{style.name}</div>
-                                        <div className="text-xs text-slate-500 mt-1">
-                                            {String(style.style_json.font_family || "Sans")} • {String(style.style_json.position || "bottom")}
-                                        </div>
-                                    </button>
-                                ))}
+                                                }`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <div className="font-semibold text-sm text-slate-800">{style.name}</div>
+                                                {hasAnimation && (
+                                                    <span
+                                                        className="px-1.5 py-0.5 rounded text-[9px] font-bold text-white"
+                                                        style={{ backgroundColor: highlightColor }}
+                                                    >
+                                                        KARAOKE
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div className="text-xs text-slate-500 mt-1">
+                                                {String(style.style_json.fontFamily || "Sans")}
+                                                {hasAnimation && ` • ${String(style.style_json.highlightStyle || "color")}`}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
                             </div>
+                            <p className="text-xs text-slate-400 mt-2">
+                                💡 Styles with "KARAOKE" badge highlight each word as it's spoken
+                            </p>
                         </div>
                     )}
 
@@ -477,8 +488,8 @@ const VideoDetailPage: React.FC = () => {
                             onClick={() => generateMutation.mutate()}
                             disabled={generateMutation.isPending || !isVideoReady}
                             className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold shadow-md transition-all ${isVideoReady
-                                    ? "bg-primary text-white hover:bg-primary/90"
-                                    : "bg-slate-300 text-slate-500 cursor-not-allowed"
+                                ? "bg-primary text-white hover:bg-primary/90"
+                                : "bg-slate-300 text-slate-500 cursor-not-allowed"
                                 }`}
                             whileHover={isVideoReady && !generateMutation.isPending ? { scale: 1.02 } : {}}
                             whileTap={isVideoReady && !generateMutation.isPending ? { scale: 0.98 } : {}}

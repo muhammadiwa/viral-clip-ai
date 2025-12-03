@@ -57,6 +57,9 @@ class ClipDetailOut(ClipOut):
     transcript_preview: Optional[str] = None
     subtitle_language: Optional[str] = None
     viral_breakdown: Optional[dict] = None
+    hashtags: Optional[List[str]] = None
+    hook_text: Optional[str] = None
+    detected_video_type: Optional[str] = None
 
 
 class ClipListResponse(BaseModel):

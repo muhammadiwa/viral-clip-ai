@@ -40,15 +40,11 @@ const AiViralClipPage: React.FC = () => {
 
   return (
     <div className="max-w-6xl mx-auto">
-      <header className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-slate-900">AI Viral Clip</h1>
-            <p className="text-sm text-slate-500">
-              Turn one long video into many viral shorts – automatically.
-            </p>
-          </div>
-        </div>
+      <header className="mb-6 text-center">
+        <h1 className="text-2xl font-semibold text-slate-900">AI Viral Clip</h1>
+        <p className="text-sm text-slate-500">
+          Turn one long video into many viral shorts – automatically.
+        </p>
         {ingestStatus && ingestStatus !== "completed" && (
           <div className="mt-2 text-xs">
             <span className={ingestStatus === "completed" ? "text-emerald-600" : ingestStatus === "failed" ? "text-rose-600" : "text-blue-600"}>

@@ -57,6 +57,18 @@ def get_clip(
         .all()
     )
     transcript_preview = " ".join([t.text for t in transcript])[:400]
+    
+    # Get hashtags and hook_text from LLM context
+    hashtags = ["viral", "trending", "fyp"]
+    hook_text = ""
+    detected_video_type = "unknown"
+    
+    if clip.llm_context and clip.llm_context.response_json:
+        response_json = clip.llm_context.response_json
+        hashtags = response_json.get("hashtags", hashtags)
+        hook_text = response_json.get("hook_text", "")
+        detected_video_type = response_json.get("detected_video_type", "unknown")
+    
     clip_data = ClipOut.model_validate(clip).model_dump()
     return ClipDetailOut(
         **clip_data,
@@ -69,6 +81,9 @@ def get_clip(
             "value": clip.grade_value,
             "trend": clip.grade_trend,
         },
+        hashtags=hashtags,
+        hook_text=hook_text,
+        detected_video_type=detected_video_type,
     )
 
 

@@ -55,6 +55,9 @@ export type ClipDetail = Clip & {
     value?: string;
     trend?: string;
   } | null;
+  hashtags?: string[] | null;
+  hook_text?: string | null;
+  detected_video_type?: string | null;
 };
 
 export type VideoCreateResponse = {

@@ -77,6 +77,40 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
                   </button>
                 </div>
                 <div className="text-xs text-slate-600">{clip?.description}</div>
+
+                {/* Hook Text */}
+                {clip?.hook_text && (
+                  <div className="p-2 rounded-lg bg-amber-50 border border-amber-200">
+                    <div className="text-[10px] font-semibold text-amber-700 mb-1">🎣 HOOK</div>
+                    <div className="text-xs text-amber-900 italic">"{clip.hook_text}"</div>
+                  </div>
+                )}
+
+                {/* Hashtags */}
+                {clip?.hashtags && clip.hashtags.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="flex flex-wrap gap-1">
+                      {clip.hashtags.map((tag, i) => (
+                        <span key={i} className="px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[10px] font-medium">
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => {
+                        const hashtagsText = clip.hashtags?.map(t => `#${t}`).join(" ") || "";
+                        navigator.clipboard.writeText(hashtagsText);
+                      }}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 flex items-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                      </svg>
+                      Copy hashtags
+                    </button>
+                  </div>
+                )}
+
                 <div className="flex items-center gap-3">
                   <div className="text-2xl font-bold text-primary">
                     {clip?.viral_score?.toFixed(1) ?? "7.5"}
@@ -85,12 +119,16 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
                     Hook {clip?.viral_breakdown?.hook || "A"} • Flow {clip?.viral_breakdown?.flow || "A-"}<br />
                     Value {clip?.viral_breakdown?.value || "A"} • Trend {clip?.viral_breakdown?.trend || "B+"}
                   </div>
+                  {clip?.detected_video_type && clip.detected_video_type !== "unknown" && (
+                    <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-600 text-[10px] capitalize">
+                      {clip.detected_video_type}
+                    </span>
+                  )}
                 </div>
-                <div className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${
-                  clip?.status === "ready" 
-                    ? "bg-emerald-100 text-emerald-700" 
-                    : "bg-amber-100 text-amber-700"
-                }`}>
+                <div className={`inline-flex px-3 py-1 rounded-full text-xs font-medium ${clip?.status === "ready"
+                  ? "bg-emerald-100 text-emerald-700"
+                  : "bg-amber-100 text-amber-700"
+                  }`}>
                   {clip?.status === "ready" ? "Ready to download" : `Status: ${clip?.status}`}
                 </div>
                 <div className="p-3 rounded-xl bg-slate-50 text-xs text-slate-600">
