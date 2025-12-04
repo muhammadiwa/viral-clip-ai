@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { motion } from "framer-motion";
 import { Clip } from "../../types/api";
 import { api } from "../../lib/apiClient";
@@ -20,9 +20,50 @@ const formatDuration = (seconds: number) => {
 };
 
 const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
+  const [downloading, setDownloading] = useState<"mp4" | "srt" | null>(null);
   const hasVideo = Boolean(clip.video_path);
-  const downloadUrl = `${api.defaults.baseURL}/viral-clip/clips/${clip.id}/download`;
-  const srtUrl = `${api.defaults.baseURL}/viral-clip/clips/${clip.id}/subtitles.srt`;
+
+  const handleDownload = async (type: "mp4" | "srt", e: React.MouseEvent) => {
+    e.stopPropagation();
+    setDownloading(type);
+
+    try {
+      const endpoint = type === "mp4"
+        ? `/viral-clip/clips/${clip.id}/download`
+        : `/viral-clip/clips/${clip.id}/subtitles.srt`;
+
+      const response = await api.get(endpoint, {
+        responseType: "blob",
+      });
+
+      // Create download link
+      const blob = new Blob([response.data], {
+        type: type === "mp4" ? "video/mp4" : "application/x-subrip",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+
+      // Get filename from content-disposition header or generate one
+      const contentDisposition = response.headers["content-disposition"];
+      let filename = type === "mp4" ? `clip-${clip.id}.mp4` : `clip-${clip.id}.srt`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match) filename = match[1];
+      }
+
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(`Failed to download ${type}:`, error);
+      alert(`Failed to download ${type}. Please try again.`);
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   return (
     <motion.button
@@ -84,23 +125,21 @@ const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
         </div>
         <div className="flex gap-2 text-[11px]">
           {hasVideo && (
-            <a
-              href={downloadUrl}
-              className="px-2 py-1 rounded-md bg-primary/10 text-primary font-semibold"
-              onClick={(e) => e.stopPropagation()}
+            <button
+              onClick={(e) => handleDownload("mp4", e)}
+              disabled={downloading === "mp4"}
+              className="px-2 py-1 rounded-md bg-primary/10 text-primary font-semibold disabled:opacity-50 disabled:cursor-wait"
             >
-              Download MP4
-            </a>
+              {downloading === "mp4" ? "Downloading..." : "Download MP4"}
+            </button>
           )}
-          <a
-            href={srtUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="px-2 py-1 rounded-md bg-slate-100 text-slate-700"
-            onClick={(e) => e.stopPropagation()}
+          <button
+            onClick={(e) => handleDownload("srt", e)}
+            disabled={downloading === "srt"}
+            className="px-2 py-1 rounded-md bg-slate-100 text-slate-700 disabled:opacity-50 disabled:cursor-wait"
           >
-            SRT
-          </a>
+            {downloading === "srt" ? "..." : "SRT"}
+          </button>
         </div>
       </div>
     </motion.button>

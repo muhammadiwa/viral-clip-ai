@@ -99,7 +99,7 @@ def download_clip(
         raise HTTPException(status_code=404, detail="Clip not found")
     
     if not clip.video_path:
-        raise HTTPException(status_code=400, detail="Clip video not ready")
+        raise HTTPException(status_code=400, detail="Clip video not ready. Please wait for processing to complete.")
     
     # Resolve local path from URL or absolute path
     if clip.video_path.startswith("http"):
@@ -109,12 +109,19 @@ def download_clip(
         local_path = Path(clip.video_path)
     
     if not local_path.exists():
-        raise HTTPException(status_code=404, detail="Clip file missing on server")
+        raise HTTPException(status_code=404, detail=f"Clip file missing on server. Expected path: {local_path}")
+    
+    # Create safe filename from clip title
+    safe_title = "".join(c for c in (clip.title or "clip") if c.isalnum() or c in " -_")[:40]
+    filename = f"{safe_title}-{clip.id}.mp4"
     
     return FileResponse(
-        local_path,
-        filename=f"clip-{clip.id}-{clip.title or 'video'}.mp4",
+        path=local_path,
+        filename=filename,
         media_type="video/mp4",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+        }
     )
 
 

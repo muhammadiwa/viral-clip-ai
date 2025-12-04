@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "../../lib/apiClient";
 import { ClipDetail, SubtitleSegment } from "../../types/api";
@@ -11,6 +11,8 @@ type Props = {
 };
 
 const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
+  const [downloading, setDownloading] = useState<"mp4" | "srt" | null>(null);
+
   const { data: clip, isLoading } = useQuery<ClipDetail>({
     queryKey: ["clip-detail", clipId],
     queryFn: async () => {
@@ -30,8 +32,48 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
   });
 
   const hasVideo = Boolean(clip?.video_path);
-  const downloadUrl = `${api.defaults.baseURL}/viral-clip/clips/${clipId}/download`;
-  const srtUrl = `${api.defaults.baseURL}/viral-clip/clips/${clipId}/subtitles.srt`;
+
+  const handleDownload = async (type: "mp4" | "srt") => {
+    if (!clipId) return;
+    setDownloading(type);
+
+    try {
+      const endpoint = type === "mp4"
+        ? `/viral-clip/clips/${clipId}/download`
+        : `/viral-clip/clips/${clipId}/subtitles.srt`;
+
+      const response = await api.get(endpoint, {
+        responseType: "blob",
+      });
+
+      // Create download link
+      const blob = new Blob([response.data], {
+        type: type === "mp4" ? "video/mp4" : "application/x-subrip",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+
+      // Get filename from content-disposition header or generate one
+      const contentDisposition = response.headers["content-disposition"];
+      let filename = type === "mp4" ? `clip-${clipId}.mp4` : `clip-${clipId}.srt`;
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename="?([^"]+)"?/);
+        if (match) filename = match[1];
+      }
+
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error(`Failed to download ${type}:`, error);
+      alert(`Failed to download ${type}. Please try again.`);
+    } finally {
+      setDownloading(null);
+    }
+  };
 
   return (
     <AnimatePresence>
@@ -153,12 +195,13 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
                 </div>
                 <div className="flex gap-3">
                   {hasVideo ? (
-                    <a
-                      href={downloadUrl}
-                      className="flex-1 text-center rounded-full bg-primary text-white py-2 text-xs font-semibold"
+                    <button
+                      onClick={() => handleDownload("mp4")}
+                      disabled={downloading === "mp4"}
+                      className="flex-1 text-center rounded-full bg-primary text-white py-2 text-xs font-semibold disabled:opacity-50 disabled:cursor-wait"
                     >
-                      Download MP4
-                    </a>
+                      {downloading === "mp4" ? "Downloading..." : "Download MP4"}
+                    </button>
                   ) : (
                     <button
                       disabled
@@ -167,14 +210,13 @@ const ClipDetailModal: React.FC<Props> = ({ clipId, open, onClose }) => {
                       Video not ready
                     </button>
                   )}
-                  <a
-                    href={srtUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex-1 text-center rounded-full border border-slate-300 py-2 text-xs font-semibold text-slate-700"
+                  <button
+                    onClick={() => handleDownload("srt")}
+                    disabled={downloading === "srt"}
+                    className="flex-1 text-center rounded-full border border-slate-300 py-2 text-xs font-semibold text-slate-700 disabled:opacity-50 disabled:cursor-wait"
                   >
-                    Download SRT
-                  </a>
+                    {downloading === "srt" ? "Downloading..." : "Download SRT"}
+                  </button>
                 </div>
               </div>
             </div>

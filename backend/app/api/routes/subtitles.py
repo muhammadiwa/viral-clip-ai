@@ -47,14 +47,32 @@ def translate_subtitles(
     return translated
 
 
-@router.get("/clips/{clip_id}/subtitles.srt", response_class=PlainTextResponse)
+@router.get("/clips/{clip_id}/subtitles.srt")
 def download_srt(
     clip_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Download SRT subtitle file for a clip."""
     clip = db.query(Clip).filter(Clip.id == clip_id).first()
     if not clip or clip.batch.video.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Clip not found")
+    
     srt_content = subtitle_service.subtitle_srt_text(db, clip)
-    return PlainTextResponse(content=srt_content, media_type="text/plain; charset=utf-8")
+    
+    if not srt_content:
+        raise HTTPException(status_code=404, detail="No subtitles found for this clip")
+    
+    # Create filename from clip title
+    safe_title = "".join(c for c in (clip.title or "clip") if c.isalnum() or c in " -_")[:30]
+    filename = f"{safe_title}-{clip.id}.srt"
+    
+    from fastapi.responses import Response
+    return Response(
+        content=srt_content,
+        media_type="application/x-subrip",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Content-Type": "application/x-subrip; charset=utf-8",
+        }
+    )

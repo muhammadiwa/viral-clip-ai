@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.models import Clip, SubtitleSegment, TranscriptSegment, AIUsageLog
 from app.services import utils
-from app.services.exporting import _format_timestamp
 
 logger = structlog.get_logger()
 settings = get_settings()
@@ -57,19 +56,41 @@ def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
     return subtitles
 
 
+def _format_srt_timestamp(seconds: float) -> str:
+    """Format seconds to SRT timestamp format: HH:MM:SS,mmm"""
+    hrs = int(seconds // 3600)
+    mins = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int((seconds - int(seconds)) * 1000)
+    return f"{hrs:02}:{mins:02}:{secs:02},{millis:03}"
+
+
 def subtitle_srt_text(db: Session, clip: Clip) -> str:
+    """Generate SRT content for a clip with timestamps relative to clip start."""
     subs = (
         db.query(SubtitleSegment)
         .filter(SubtitleSegment.clip_id == clip.id)
         .order_by(SubtitleSegment.start_time_sec)
         .all()
     )
+    
+    if not subs:
+        logger.warning("subtitles.srt_empty", clip_id=clip.id)
+        return ""
+    
     lines = []
+    clip_start = clip.start_time_sec
+    
     for idx, seg in enumerate(subs, 1):
+        # Adjust timestamps to be relative to clip start (start from 0)
+        start = max(seg.start_time_sec - clip_start, 0)
+        end = max(seg.end_time_sec - clip_start, start + 0.1)
+        
         lines.append(str(idx))
-        lines.append(f"{_format_timestamp(seg.start_time_sec)} --> {_format_timestamp(seg.end_time_sec)}")
+        lines.append(f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}")
         lines.append(seg.text)
         lines.append("")
+    
     return "\n".join(lines)
 
 
