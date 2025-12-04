@@ -14,6 +14,7 @@ class SubtitleSegment(Base, TimestampMixin):
     end_time_sec = Column(Float, nullable=False)
     text = Column(Text, nullable=False)
     language = Column(String, default="en")
+    words_json = Column(JSON)  # Word-level timestamps: [{"word": "hello", "start": 0.0, "end": 0.5}, ...]
 
     clip = relationship("Clip", back_populates="subtitles")
 

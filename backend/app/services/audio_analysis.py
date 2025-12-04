@@ -36,11 +36,12 @@ def analyze_audio_energy(
     """
     logger.info("audio_analysis.energy_start", video_path=video_path)
     
-    # Use ffmpeg to get audio volume statistics per interval
+    # Use ffmpeg with ebur128 filter for reliable loudness measurement
+    # ebur128 outputs momentary loudness (M) every 100ms
     cmd = [
         settings.ffmpeg_bin,
         "-i", video_path,
-        "-af", f"astats=metadata=1:reset={int(sample_interval * 100)}",
+        "-af", "ebur128=peak=true",
         "-f", "null",
         "-"
     ]
@@ -50,45 +51,124 @@ def analyze_audio_energy(
         logger.warning("audio_analysis.energy_failed", error=stderr[:500])
         return []
     
-    # Parse RMS levels from stderr
-    energy_data = _parse_audio_stats(stderr, sample_interval)
-    logger.info("audio_analysis.energy_done", samples=len(energy_data))
+    # Parse loudness levels from stderr
+    energy_data = _parse_ebur128_output(stderr, sample_interval)
     
+    # Fallback to volumedetect-based estimation if ebur128 parsing fails
+    if not energy_data:
+        logger.info("audio_analysis.fallback_to_volumedetect")
+        energy_data = _estimate_energy_from_volumedetect(video_path, sample_interval)
+    
+    logger.info("audio_analysis.energy_done", samples=len(energy_data))
     return energy_data
 
 
-def _parse_audio_stats(stderr: str, interval: float) -> List[Dict[str, Any]]:
-    """Parse ffmpeg astats output to extract RMS levels."""
+def _parse_ebur128_output(stderr: str, interval: float) -> List[Dict[str, Any]]:
+    """Parse ffmpeg ebur128 output to extract momentary loudness."""
     results = []
-    current_time = 0.0
     
-    # Pattern for RMS level
-    rms_pattern = re.compile(r"RMS_level[:\s]+([-\d.]+)")
+    # Pattern for momentary loudness: "M: -23.5"
+    m_pattern = re.compile(r"M:\s*([-\d.]+)")
+    # Pattern for timestamp: "t: 1.234"
+    t_pattern = re.compile(r"t:\s*([\d.]+)")
     
     lines = stderr.split("\n")
-    rms_values = []
+    current_time = 0.0
     
     for line in lines:
-        match = rms_pattern.search(line)
-        if match:
+        # Look for lines with momentary loudness
+        m_match = m_pattern.search(line)
+        t_match = t_pattern.search(line)
+        
+        if m_match:
             try:
-                db_level = float(match.group(1))
-                rms_values.append(db_level)
+                lufs = float(m_match.group(1))
+                if t_match:
+                    current_time = float(t_match.group(1))
+                
+                # Convert LUFS to 0-1 scale (-70 LUFS = 0, -14 LUFS = 1)
+                # -14 LUFS is typical for streaming platforms
+                normalized = max(0, min(1, (lufs + 70) / 56))
+                
+                results.append({
+                    "time": current_time,
+                    "energy": normalized,
+                    "db_level": lufs,
+                })
+                current_time += 0.1  # ebur128 outputs every 100ms
             except ValueError:
                 continue
     
-    # Convert to per-interval samples
-    if rms_values:
-        # Normalize dB to 0-1 scale (-60dB = 0, 0dB = 1)
-        for i, db in enumerate(rms_values):
-            time = i * interval
-            # Clamp and normalize: -60dB to 0dB -> 0 to 1
-            normalized = max(0, min(1, (db + 60) / 60))
-            results.append({
-                "time": time,
-                "energy": normalized,
-                "db_level": db,
-            })
+    # Resample to desired interval
+    if results and interval > 0.1:
+        resampled = []
+        t = 0.0
+        max_time = results[-1]["time"] if results else 0
+        
+        while t <= max_time:
+            # Find samples within this interval
+            samples_in_interval = [r for r in results if t <= r["time"] < t + interval]
+            if samples_in_interval:
+                avg_energy = sum(s["energy"] for s in samples_in_interval) / len(samples_in_interval)
+                avg_db = sum(s["db_level"] for s in samples_in_interval) / len(samples_in_interval)
+                resampled.append({
+                    "time": t,
+                    "energy": avg_energy,
+                    "db_level": avg_db,
+                })
+            t += interval
+        
+        return resampled
+    
+    return results
+
+
+def _estimate_energy_from_volumedetect(video_path: str, interval: float) -> List[Dict[str, Any]]:
+    """
+    Fallback: Estimate energy timeline using volumedetect on chunks.
+    Less accurate but more reliable across different ffmpeg versions.
+    """
+    from app.services.utils import probe_duration
+    
+    duration = probe_duration(video_path) or 0
+    if duration <= 0:
+        return []
+    
+    results = []
+    t = 0.0
+    
+    # Sample every interval using volumedetect on short segments
+    while t < duration:
+        cmd = [
+            settings.ffmpeg_bin,
+            "-ss", str(t),
+            "-t", str(min(interval, duration - t)),
+            "-i", video_path,
+            "-af", "volumedetect",
+            "-f", "null",
+            "-"
+        ]
+        
+        code, _, stderr = run_cmd(cmd)
+        
+        mean_vol = -30.0
+        if code == 0:
+            for line in stderr.split("\n"):
+                if "mean_volume" in line:
+                    match = re.search(r"mean_volume:\s*([-\d.]+)", line)
+                    if match:
+                        mean_vol = float(match.group(1))
+                        break
+        
+        # Normalize: -60dB = 0, 0dB = 1
+        normalized = max(0, min(1, (mean_vol + 60) / 60))
+        results.append({
+            "time": t,
+            "energy": normalized,
+            "db_level": mean_vol,
+        })
+        
+        t += interval
     
     return results
 

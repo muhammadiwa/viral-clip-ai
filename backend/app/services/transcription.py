@@ -29,9 +29,47 @@ def _segment_value(segment, attr: str, default: float | str = ""):
 
 
 def _transcribe_chunk(client, audio_path: str, model: str) -> Tuple[List[dict], Optional[dict]]:
+    """
+    Transcribe audio chunk using Whisper API.
+    
+    Uses verbose_json format with timestamp_granularities=["word", "segment"]
+    to get word-level timestamps for accurate karaoke-style subtitles.
+    """
     with open(audio_path, "rb") as f:
-        resp = client.audio.transcriptions.create(model=model, file=f, response_format="verbose_json")
+        resp = client.audio.transcriptions.create(
+            model=model,
+            file=f,
+            response_format="verbose_json",
+            timestamp_granularities=["word", "segment"],  # Get word-level timestamps
+        )
     raw_segments = getattr(resp, "segments", None) or []
+    
+    # Also get word-level data if available
+    words = getattr(resp, "words", None) or []
+    
+    # Attach words to segments for word-level timing
+    if words:
+        for seg in raw_segments:
+            seg_start = seg.get("start", 0) if isinstance(seg, dict) else getattr(seg, "start", 0)
+            seg_end = seg.get("end", 0) if isinstance(seg, dict) else getattr(seg, "end", 0)
+            
+            # Find words that belong to this segment
+            seg_words = []
+            for w in words:
+                w_start = w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)
+                w_end = w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)
+                if w_start >= seg_start and w_end <= seg_end + 0.1:  # Small tolerance
+                    seg_words.append({
+                        "word": w.get("word", "") if isinstance(w, dict) else getattr(w, "word", ""),
+                        "start": w_start,
+                        "end": w_end,
+                    })
+            
+            if isinstance(seg, dict):
+                seg["words"] = seg_words
+            else:
+                setattr(seg, "words", seg_words)
+    
     usage = getattr(resp, "usage", None)
     usage_dict = usage.model_dump() if hasattr(usage, "model_dump") else None
     return raw_segments, usage_dict
@@ -140,6 +178,20 @@ def transcribe_video(
             )
 
         for seg in raw_segments:
+            # Get word-level timestamps if available
+            seg_words = _segment_value(seg, "words", [])
+            words_json = None
+            if seg_words:
+                # Adjust word timestamps by chunk start offset
+                words_json = [
+                    {
+                        "word": w.get("word", "") if isinstance(w, dict) else getattr(w, "word", ""),
+                        "start": (w.get("start", 0) if isinstance(w, dict) else getattr(w, "start", 0)) + start,
+                        "end": (w.get("end", 0) if isinstance(w, dict) else getattr(w, "end", 0)) + start,
+                    }
+                    for w in seg_words
+                ]
+            
             all_segments.append(
                 TranscriptSegment(
                     video_source_id=video.id,
@@ -148,6 +200,7 @@ def transcribe_video(
                     text=str(_segment_value(seg, "text", "")).strip(),
                     speaker=None,
                     language=_segment_value(seg, "language", "en") or "en",
+                    words_json=words_json,
                 )
             )
 

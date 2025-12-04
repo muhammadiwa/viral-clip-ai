@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -40,6 +40,7 @@ class TranscriptSegment(Base, TimestampMixin):
     text = Column(Text, nullable=False)
     speaker = Column(String)
     language = Column(String, default="en")
+    words_json = Column(JSON)  # Word-level timestamps: [{"word": "hello", "start": 0.0, "end": 0.5}, ...]
 
     video = relationship("VideoSource", back_populates="transcript_segments")
 

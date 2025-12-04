@@ -281,26 +281,82 @@ def _write_ass_for_preview(
     - underline: Add underline to current word
     - gradient: Use highlight color (ASS doesn't support true gradients)
     """
-    # Get dimensions
-    if aspect_ratio == "9:16":
-        play_res_x, play_res_y = 1080, 1920
-    elif aspect_ratio == "1:1":
-        play_res_x, play_res_y = 1080, 1080
-    else:
-        play_res_x, play_res_y = 1920, 1080
+    # Get dimensions and optimal sizes based on aspect ratio
+    # All sizes are calculated as percentage of video height for consistency
+    # Reference: 9:16 (1080x1920) is the base, others are scaled proportionally
     
-    # Default style settings
+    ASPECT_RATIO_CONFIG = {
+        "9:16": {
+            "width": 1080,
+            "height": 1920,
+            "font_size": 76,        # ~4% of height
+            "margin_v": 290,        # ~15% from bottom
+            "margin_h": 54,         # ~5% from sides
+            "outline": 4,
+        },
+        "1:1": {
+            "width": 1080,
+            "height": 1080,
+            "font_size": 52,        # ~4.8% of height (slightly larger % for readability)
+            "margin_v": 120,        # ~11% from bottom
+            "margin_h": 54,         # ~5% from sides
+            "outline": 3,
+        },
+        "16:9": {
+            "width": 1920,
+            "height": 1080,
+            "font_size": 48,        # ~4.4% of height
+            "margin_v": 80,         # ~7.5% from bottom
+            "margin_h": 96,         # ~5% from sides
+            "outline": 3,
+        },
+    }
+    
+    config = ASPECT_RATIO_CONFIG.get(aspect_ratio, ASPECT_RATIO_CONFIG["9:16"])
+    play_res_x = config["width"]
+    play_res_y = config["height"]
+    
+    # Style settings with automatic scaling
     style = style_json or {}
     font_name = style.get("fontFamily", "Arial Black")
-    font_size = style.get("fontSize", 76)
+    
+    # Get font size from style and scale it for current aspect ratio
+    # Styles are typically designed for 9:16, so we scale based on height ratio
+    style_font_size = style.get("fontSize")
+    if style_font_size:
+        # Scale font size proportionally to video height
+        # Base reference: 9:16 has height 1920
+        scale_factor = play_res_y / 1920
+        font_size = max(28, int(style_font_size * scale_factor))
+    else:
+        font_size = config["font_size"]
+    
     font_color = style.get("fontColor", "#FFFFFF").lstrip("#")
-    outline_width = style.get("outlineWidth", 4)
+    
+    # Scale outline width
+    style_outline = style.get("outlineWidth")
+    if style_outline:
+        scale_factor = play_res_y / 1920
+        outline_width = max(2, int(style_outline * scale_factor))
+    else:
+        outline_width = config["outline"]
+    
     outline_color = style.get("outlineColor", "#000000").lstrip("#")
     bold = -1 if style.get("bold", True) else 0
     alignment = style.get("alignment", 2)
-    margin_v = style.get("marginV", 290)
-    margin_l = style.get("marginL", 54)
-    margin_r = style.get("marginR", 54)
+    
+    # Scale margins
+    style_margin_v = style.get("marginV")
+    if style_margin_v:
+        scale_factor = play_res_y / 1920
+        margin_v = max(40, int(style_margin_v * scale_factor))
+    else:
+        margin_v = config["margin_v"]
+    
+    style_margin_l = style.get("marginL")
+    style_margin_r = style.get("marginR")
+    margin_l = style_margin_l if style_margin_l else config["margin_h"]
+    margin_r = style_margin_r if style_margin_r else config["margin_h"]
     
     # Animation settings
     animation = style.get("animation", "none")
@@ -352,12 +408,25 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         if animation == "word_highlight" and highlight_style in supported_highlights:
             # Word-by-word karaoke effect
             words = text.split()
+            
+            # Check if we have word-level timestamps from Whisper
+            word_timestamps = seg.get("words", [])
+            has_word_timestamps = word_timestamps and len(word_timestamps) > 0
+            
             if len(words) > 1:
+                # Calculate fallback word duration (used if no word timestamps)
                 word_duration = (end - start) / len(words)
                 
                 for word_idx, word in enumerate(words):
-                    word_start = start + (word_idx * word_duration)
-                    word_end = word_start + word_duration
+                    # Use word-level timestamps if available, otherwise calculate
+                    if has_word_timestamps and word_idx < len(word_timestamps):
+                        wt = word_timestamps[word_idx]
+                        word_start = max(wt.get("start", 0) - clip_start, 0)
+                        word_end = max(wt.get("end", 0) - clip_start, word_start + 0.1)
+                    else:
+                        # Fallback: evenly distribute words
+                        word_start = start + (word_idx * word_duration)
+                        word_end = word_start + word_duration
                     
                     # Build the line with current word highlighted
                     line_parts = []
@@ -473,29 +542,30 @@ def _get_default_viral_style(aspect_ratio: str = "9:16") -> Dict[str, Any]:
         9:16 = 1080x1920 (Portrait/TikTok/Reels)
         1:1  = 1080x1080 (Square/Instagram)
         16:9 = 1920x1080 (Landscape/YouTube)
+    
+    Design principles:
+        - Font size: ~4-5% of video height for readability
+        - MarginV: Safe area from bottom (avoid UI elements)
+        - MarginL/R: ~5% padding from edges
     """
-    # Style settings per aspect ratio
-    # Font size ~4% of video height for readability
-    # MarginV ~15% from bottom for safe area (avoid UI elements on mobile)
-    # MarginL/R ~5% for padding from edges
     styles = {
         "9:16": {
             "fontSize": 76,      # 1920 * 0.04 = ~76
-            "marginV": 290,      # 1920 * 0.15 = ~290 (above mobile nav/buttons)
+            "marginV": 290,      # ~15% from bottom (above mobile nav/buttons)
             "marginL": 54,       # 1080 * 0.05 = ~54
             "marginR": 54,
             "outlineWidth": 4,
         },
         "1:1": {
-            "fontSize": 44,      # 1080 * 0.04 = ~44
-            "marginV": 160,      # 1080 * 0.15 = ~160
+            "fontSize": 52,      # 1080 * 0.048 = ~52 (slightly larger % for square)
+            "marginV": 120,      # ~11% from bottom
             "marginL": 54,       # 1080 * 0.05 = ~54
             "marginR": 54,
             "outlineWidth": 3,
         },
         "16:9": {
-            "fontSize": 44,      # 1080 * 0.04 = ~44
-            "marginV": 80,       # 1080 * 0.075 = ~80 (less margin needed for landscape)
+            "fontSize": 48,      # 1080 * 0.044 = ~48
+            "marginV": 80,       # ~7.5% from bottom (less needed for landscape)
             "marginL": 96,       # 1920 * 0.05 = ~96
             "marginR": 96,
             "outlineWidth": 3,
@@ -535,6 +605,9 @@ def _build_subtitle_filter(
     
     IMPORTANT: We must specify original_size to match the output video resolution,
     otherwise ffmpeg uses default ASS PlayRes (384x288) which makes fonts tiny.
+    
+    All sizes are automatically scaled based on aspect ratio.
+    Styles are assumed to be designed for 9:16 (1920 height) and scaled accordingly.
     """
     srt_escaped = _escape_ffmpeg_path(srt_path)
     
@@ -546,19 +619,42 @@ def _build_subtitle_filter(
     else:
         merged_style = default_style
     
-    # Extract style properties
+    # Scale factor based on video height (reference: 9:16 = 1920 height)
+    scale_factor = video_height / 1920
+    
+    # Extract and scale style properties
     font_name = merged_style.get("fontFamily", "Arial Black")
-    font_size = merged_style.get("fontSize", 72)
+    
+    # Scale font size
+    raw_font_size = merged_style.get("fontSize", 72)
+    font_size = max(28, int(raw_font_size * scale_factor))
+    
     font_color = merged_style.get("fontColor", "#FFFFFF").lstrip("#")
     bold = 1 if merged_style.get("bold", True) else 0
     italic = 1 if merged_style.get("italic", False) else 0
-    outline_width = merged_style.get("outlineWidth", 4)
+    
+    # Scale outline width
+    raw_outline = merged_style.get("outlineWidth", 4)
+    outline_width = max(2, int(raw_outline * scale_factor))
+    
     outline_color = merged_style.get("outlineColor", "#000000").lstrip("#")
-    shadow_offset = merged_style.get("shadowOffset", 2)
+    
+    # Scale shadow
+    raw_shadow = merged_style.get("shadowOffset", 2)
+    shadow_offset = max(1, int(raw_shadow * scale_factor))
+    
     alignment = merged_style.get("alignment", 2)
-    margin_v = merged_style.get("marginV", 120)
-    margin_l = merged_style.get("marginL", 40)
-    margin_r = merged_style.get("marginR", 40)
+    
+    # Scale margins
+    raw_margin_v = merged_style.get("marginV", 120)
+    margin_v = max(40, int(raw_margin_v * scale_factor))
+    
+    raw_margin_l = merged_style.get("marginL", 40)
+    margin_l = max(20, int(raw_margin_l * scale_factor))
+    
+    raw_margin_r = merged_style.get("marginR", 40)
+    margin_r = max(20, int(raw_margin_r * scale_factor))
+    
     spacing = merged_style.get("spacing", 0)
     border_style = merged_style.get("borderStyle", 1)
     

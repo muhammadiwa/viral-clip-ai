@@ -478,36 +478,79 @@ def find_engagement_peaks(
     Returns optimal clip candidates with start_time, end_time, engagement_score, etc.
     """
     if not combined_timeline:
+        logger.warning("segmentation.find_peaks_empty_timeline")
         return []
     
     all_scores = [c["engagement_score"] for c in combined_timeline]
     mean_score = sum(all_scores) / len(all_scores)
-    threshold = max(0.4, mean_score * 1.2)
+    std_score = (sum((s - mean_score) ** 2 for s in all_scores) / len(all_scores)) ** 0.5
+    
+    # More adaptive threshold: use mean + 0.5*std, but with reasonable bounds
+    # This ensures we find peaks even in low-engagement videos
+    threshold = max(0.25, min(0.6, mean_score + std_score * 0.5))
+    
+    logger.info(
+        "segmentation.find_peaks_threshold",
+        mean_score=round(mean_score, 3),
+        std_score=round(std_score, 3),
+        threshold=round(threshold, 3),
+        timeline_length=len(combined_timeline),
+    )
     
     peaks = []
     i = 0
+    timeline_len = len(combined_timeline)
     
-    while i < len(combined_timeline):
+    while i < timeline_len:
         if combined_timeline[i]["engagement_score"] >= threshold:
             start_idx = i
             peak_score = combined_timeline[i]["engagement_score"]
             scores_sum = combined_timeline[i]["engagement_score"]
             
-            while i < len(combined_timeline) and combined_timeline[i]["engagement_score"] >= threshold * 0.7:
+            # Extend while above threshold * 0.7
+            while i < timeline_len and combined_timeline[i]["engagement_score"] >= threshold * 0.7:
                 peak_score = max(peak_score, combined_timeline[i]["engagement_score"])
                 scores_sum += combined_timeline[i]["engagement_score"]
                 i += 1
             
             end_idx = i
+            raw_duration = combined_timeline[end_idx - 1]["time"] - combined_timeline[start_idx]["time"]
+            
+            # If peak is too short, try to extend it to meet min_duration
+            if raw_duration < min_duration:
+                needed = min_duration - raw_duration
+                extend_before = int(needed / 2)
+                extend_after = int(needed / 2) + 1
+                
+                # Extend start backwards
+                new_start_idx = max(0, start_idx - extend_before)
+                # Extend end forwards
+                new_end_idx = min(timeline_len - 1, end_idx + extend_after)
+                
+                start_idx = new_start_idx
+                end_idx = new_end_idx
+            
+            # If peak is too long, trim it
+            if raw_duration > max_duration:
+                # Keep the highest scoring portion
+                end_idx = start_idx + int(max_duration)
+                if end_idx >= timeline_len:
+                    end_idx = timeline_len - 1
+            
+            # Recalculate duration after adjustments
             duration = combined_timeline[end_idx - 1]["time"] - combined_timeline[start_idx]["time"]
             
-            if min_duration <= duration <= max_duration:
+            # Accept if duration is reasonable (allow some flexibility)
+            if duration >= min_duration * 0.8 and duration <= max_duration * 1.1:
                 segment_data = combined_timeline[start_idx:end_idx]
-                avg_score = scores_sum / len(segment_data)
+                if not segment_data:
+                    continue
+                    
+                avg_score = sum(s["engagement_score"] for s in segment_data) / len(segment_data)
                 
-                avg_audio = sum(s["audio_excitement"] for s in segment_data) / len(segment_data)
-                avg_visual = sum(s["visual_interest"] for s in segment_data) / len(segment_data)
-                avg_transcript = sum(s["transcript_score"] for s in segment_data) / len(segment_data)
+                avg_audio = sum(s.get("audio_excitement", 0.5) for s in segment_data) / len(segment_data)
+                avg_visual = sum(s.get("visual_interest", 0.5) for s in segment_data) / len(segment_data)
+                avg_transcript = sum(s.get("transcript_score", 0.3) for s in segment_data) / len(segment_data)
                 
                 if avg_audio >= avg_visual and avg_audio >= avg_transcript:
                     dominant = "audio_excitement"
@@ -522,21 +565,31 @@ def find_engagement_peaks(
                     emotions[em] = emotions.get(em, 0) + 1
                 primary_emotion = max(emotions, key=emotions.get) if emotions else "neutral"
                 
-                peaks.append({
-                    "start_time": combined_timeline[start_idx]["time"],
-                    "end_time": combined_timeline[end_idx - 1]["time"],
-                    "duration": duration,
-                    "peak_score": peak_score,
-                    "avg_score": avg_score,
-                    "dominant_signal": dominant,
-                    "primary_emotion": primary_emotion,
-                    "avg_audio_excitement": avg_audio,
-                    "avg_visual_interest": avg_visual,
-                    "avg_transcript_score": avg_transcript,
-                })
+                # Check for overlap with existing peaks
+                overlaps = False
+                for existing in peaks:
+                    if (combined_timeline[start_idx]["time"] < existing["end_time"] and 
+                        combined_timeline[end_idx - 1]["time"] > existing["start_time"]):
+                        overlaps = True
+                        break
+                
+                if not overlaps:
+                    peaks.append({
+                        "start_time": combined_timeline[start_idx]["time"],
+                        "end_time": combined_timeline[end_idx - 1]["time"],
+                        "duration": duration,
+                        "peak_score": peak_score,
+                        "avg_score": avg_score,
+                        "dominant_signal": dominant,
+                        "primary_emotion": primary_emotion,
+                        "avg_audio_excitement": avg_audio,
+                        "avg_visual_interest": avg_visual,
+                        "avg_transcript_score": avg_transcript,
+                    })
         else:
             i += 1
     
+    logger.info("segmentation.find_peaks_result", peaks_found=len(peaks))
     peaks.sort(key=lambda x: x["avg_score"], reverse=True)
     return peaks[:top_n]
 

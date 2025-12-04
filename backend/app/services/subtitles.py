@@ -47,6 +47,7 @@ def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
                 end_time_sec=seg.end_time_sec,
                 text=seg.text,
                 language=seg.language or "en",
+                words_json=seg.words_json,  # Copy word-level timestamps for karaoke
             )
         )
     for sub in subtitles:

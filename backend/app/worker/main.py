@@ -160,10 +160,15 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
         )
         db.add(video_analysis)
         db.commit()
+        db.refresh(video_analysis)
         logger.info(
             "worker.analysis_saved", 
             video_id=video.id,
+            analysis_id=video_analysis.id,
             ai_vision_enabled=analysis_data.get("ai_vision_enabled", False),
+            combined_timeline_length=len(analysis_data.get("combined_timeline", [])),
+            audio_peaks_count=len(analysis_data.get("audio_peaks", [])),
+            viral_moments_count=len(analysis_data.get("viral_moments", [])),
         )
         
         # Save segment analysis for each transcript segment
@@ -334,6 +339,7 @@ def _process_clip_generation(db: Session, job: ProcessingJob):
                             "start_time_sec": s.start_time_sec,
                             "end_time_sec": s.end_time_sec,
                             "text": s.text,
+                            "words": s.words_json,  # Include word-level timestamps for karaoke
                         }
                         for s in subs
                     ]

@@ -90,6 +90,120 @@ def clear_llm_cache() -> None:
     logger.info("virality.cache_cleared")
 
 
+def _create_candidates_from_ai_segments(
+    ai_viral_segments: List[Dict[str, Any]],
+    transcripts: List,
+    min_dur: float,
+    max_dur: float,
+) -> List[Dict[str, Any]]:
+    """
+    Create clip candidates from AI viral segments when engagement peaks are empty.
+    """
+    candidates = []
+    
+    for seg in ai_viral_segments[:15]:
+        start_time = seg.get("start_time", 0)
+        end_time = seg.get("end_time", start_time + 30)
+        duration = end_time - start_time
+        
+        # Adjust duration to fit constraints
+        if duration < min_dur:
+            end_time = start_time + min_dur
+        elif duration > max_dur:
+            end_time = start_time + max_dur
+        
+        duration = end_time - start_time
+        
+        transcript_text = sentiment_analysis.get_transcript_for_time_range(
+            transcripts, start_time, end_time
+        )
+        hook_analysis = sentiment_analysis.analyze_text_for_hook_strength(transcript_text)
+        
+        ai_analysis = seg.get("ai_analysis", {})
+        
+        candidates.append({
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration": duration,
+            "peak_score": seg.get("viral_score", 0.5),
+            "avg_score": seg.get("viral_score", 0.5),
+            "dominant_signal": "ai_vision",
+            "primary_emotion": "engaging",
+            "transcript_preview": transcript_text[:300],
+            "transcript_full": transcript_text,
+            "hook_strength": hook_analysis["hook_strength"],
+            "hook_reasons": hook_analysis.get("reasons", []),
+            "engagement_score": seg.get("viral_score", 0.5),
+            "ai_reasoning": ai_analysis.get("reasoning", ""),
+            "categories": ai_analysis.get("categories", []),
+            "engagement_factors": ai_analysis.get("engagement_factors", []),
+            "hook_potential": ai_analysis.get("hook_potential", 0.5),
+            "is_viral_candidate": seg.get("is_viral_candidate", True),
+            "viral_score": seg.get("viral_score", 0.5),
+            "action_level": seg.get("action_level", "medium"),
+        })
+    
+    candidates.sort(key=lambda x: x["viral_score"], reverse=True)
+    return candidates
+
+
+def _create_candidates_from_viral_moments(
+    viral_moments: List[Dict[str, Any]],
+    transcripts: List,
+    min_dur: float,
+    max_dur: float,
+) -> List[Dict[str, Any]]:
+    """
+    Create clip candidates from viral moments when other methods fail.
+    """
+    candidates = []
+    
+    for moment in viral_moments[:15]:
+        start_time = moment.get("start_time", 0)
+        end_time = moment.get("end_time", start_time + 30)
+        duration = end_time - start_time
+        
+        # Adjust duration to fit constraints
+        if duration < min_dur:
+            end_time = start_time + min_dur
+        elif duration > max_dur:
+            end_time = start_time + max_dur
+        
+        duration = end_time - start_time
+        
+        transcript_text = sentiment_analysis.get_transcript_for_time_range(
+            transcripts, start_time, end_time
+        )
+        hook_analysis = sentiment_analysis.analyze_text_for_hook_strength(transcript_text)
+        
+        viral_potential = moment.get("viral_potential", 0.5)
+        
+        candidates.append({
+            "start_time": start_time,
+            "end_time": end_time,
+            "duration": duration,
+            "peak_score": viral_potential,
+            "avg_score": viral_potential,
+            "dominant_signal": moment.get("source", "transcript"),
+            "primary_emotion": moment.get("reason", "engaging")[:20],
+            "transcript_preview": transcript_text[:300],
+            "transcript_full": transcript_text,
+            "hook_strength": hook_analysis["hook_strength"],
+            "hook_reasons": hook_analysis.get("reasons", []),
+            "engagement_score": viral_potential,
+            "ai_reasoning": moment.get("reason", ""),
+            "categories": [],
+            "engagement_factors": moment.get("indicators", []),
+            "hook_potential": hook_analysis["hook_strength"],
+            "is_viral_candidate": True,
+            "viral_score": viral_potential,
+            "action_level": "medium",
+        })
+    
+    candidates.sort(key=lambda x: x["viral_score"], reverse=True)
+    return candidates
+
+
 def _enrich_candidates_with_ai_segments(
     engagement_peaks: List[Dict[str, Any]],
     transcripts: List,
@@ -279,6 +393,85 @@ Respond ONLY with valid JSON, no commentary."""
     return prompt
 
 
+def _save_video_analysis(
+    db: Session,
+    video_source_id: int,
+    analysis_data: Dict[str, Any],
+    duration: float,
+) -> None:
+    """
+    Save comprehensive analysis results to database for future use.
+    This avoids re-analyzing the same video multiple times.
+    """
+    try:
+        # Check if analysis already exists
+        existing = db.query(VideoAnalysis).filter(
+            VideoAnalysis.video_source_id == video_source_id
+        ).first()
+        
+        if existing:
+            # Update existing analysis
+            existing.duration_analyzed = duration
+            existing.audio_timeline_json = analysis_data.get("audio_timeline", [])
+            existing.visual_timeline_json = analysis_data.get("visual_timeline", [])
+            existing.combined_timeline_json = analysis_data.get("combined_timeline", [])
+            existing.audio_peaks_json = analysis_data.get("audio_peaks", [])
+            existing.visual_peaks_json = analysis_data.get("visual_peaks", [])
+            existing.engagement_peaks_json = analysis_data.get("viral_moments", [])
+            existing.ai_viral_segments_json = analysis_data.get("ai_viral_segments", [])
+            existing.ai_vision_enabled = analysis_data.get("ai_vision_enabled", False)
+            existing.ai_vision_timeline_json = analysis_data.get("ai_vision_timeline", [])
+            existing.ai_vision_summary_json = analysis_data.get("ai_vision_summary")
+            
+            # Calculate summary stats
+            combined = analysis_data.get("combined_timeline", [])
+            if combined:
+                existing.avg_audio_energy = sum(c.get("audio_energy", 0.5) for c in combined) / len(combined)
+                existing.avg_visual_interest = sum(c.get("visual_interest", 0.5) for c in combined) / len(combined)
+                existing.avg_engagement = sum(c.get("engagement_score", 0.5) for c in combined) / len(combined)
+            
+            existing.audio_peaks_count = len(analysis_data.get("audio_peaks", []))
+            existing.visual_peaks_count = len(analysis_data.get("visual_peaks", []))
+            existing.viral_moments_count = len(analysis_data.get("viral_moments", []))
+            
+            logger.info("virality.analysis_updated", video_source_id=video_source_id)
+        else:
+            # Create new analysis record
+            combined = analysis_data.get("combined_timeline", [])
+            avg_audio = sum(c.get("audio_energy", 0.5) for c in combined) / len(combined) if combined else 0.5
+            avg_visual = sum(c.get("visual_interest", 0.5) for c in combined) / len(combined) if combined else 0.5
+            avg_engagement = sum(c.get("engagement_score", 0.5) for c in combined) / len(combined) if combined else 0.5
+            
+            video_analysis = VideoAnalysis(
+                video_source_id=video_source_id,
+                analysis_version="v2",
+                duration_analyzed=duration,
+                avg_audio_energy=avg_audio,
+                avg_visual_interest=avg_visual,
+                avg_engagement=avg_engagement,
+                audio_peaks_count=len(analysis_data.get("audio_peaks", [])),
+                visual_peaks_count=len(analysis_data.get("visual_peaks", [])),
+                viral_moments_count=len(analysis_data.get("viral_moments", [])),
+                audio_timeline_json=analysis_data.get("audio_timeline", []),
+                visual_timeline_json=analysis_data.get("visual_timeline", []),
+                combined_timeline_json=analysis_data.get("combined_timeline", []),
+                audio_peaks_json=analysis_data.get("audio_peaks", []),
+                visual_peaks_json=analysis_data.get("visual_peaks", []),
+                engagement_peaks_json=analysis_data.get("viral_moments", []),
+                ai_vision_enabled=analysis_data.get("ai_vision_enabled", False),
+                ai_vision_timeline_json=analysis_data.get("ai_vision_timeline", []),
+                ai_vision_summary_json=analysis_data.get("ai_vision_summary"),
+                ai_viral_segments_json=analysis_data.get("ai_viral_segments", []),
+            )
+            db.add(video_analysis)
+            logger.info("virality.analysis_saved", video_source_id=video_source_id)
+        
+        db.commit()
+    except Exception as e:
+        logger.error("virality.analysis_save_failed", error=str(e), video_source_id=video_source_id)
+        db.rollback()
+
+
 def _parse_llm_response(resp_text: str) -> List[dict]:
     """Parse LLM response to extract clips."""
     if not resp_text:
@@ -406,6 +599,18 @@ def generate_clips_for_batch(
         VideoAnalysis.video_source_id == batch.video_source_id
     ).first()
     
+    # Log analysis status for debugging
+    if existing_analysis:
+        logger.info(
+            "virality.existing_analysis_found",
+            video_source_id=batch.video_source_id,
+            has_combined_timeline=bool(existing_analysis.combined_timeline_json),
+            combined_timeline_length=len(existing_analysis.combined_timeline_json or []),
+            has_ai_viral_segments=bool(existing_analysis.ai_viral_segments_json),
+        )
+    else:
+        logger.info("virality.no_existing_analysis", video_source_id=batch.video_source_id)
+    
     # Check in-memory cache
     cached = _get_cached_response(cache_key)
     analysis_data = None
@@ -458,6 +663,19 @@ def generate_clips_for_batch(
         clip_candidates = _enrich_candidates_with_ai_segments(
             engagement_peaks, transcripts, ai_viral_segments
         )
+        
+        # Fallback: if no peaks found, create candidates from AI viral segments or viral moments
+        if not clip_candidates and ai_viral_segments:
+            logger.info("virality.db_using_ai_segments_fallback", count=len(ai_viral_segments))
+            clip_candidates = _create_candidates_from_ai_segments(
+                ai_viral_segments, transcripts, min_dur, max_dur
+            )
+        
+        if not clip_candidates and analysis_data.get("viral_moments"):
+            logger.info("virality.db_using_viral_moments_fallback", count=len(analysis_data["viral_moments"]))
+            clip_candidates = _create_candidates_from_viral_moments(
+                analysis_data["viral_moments"], transcripts, min_dur, max_dur
+            )
         
         if progress_callback:
             progress_callback("find_peaks", 1.0, f"Found {len(clip_candidates)} candidates")
@@ -540,6 +758,9 @@ def generate_clips_for_batch(
         if progress_callback:
             progress_callback("analyze", 0.8, "Analysis complete")
         
+        # Save analysis to database for future use
+        _save_video_analysis(db, batch.video_source_id, analysis_data, duration)
+        
         # Find engagement peaks
         if progress_callback:
             progress_callback("find_peaks", 0.1, "Finding engagement peaks...")
@@ -558,6 +779,19 @@ def generate_clips_for_batch(
         clip_candidates = _enrich_candidates_with_ai_segments(
             engagement_peaks, transcripts, ai_viral_segments
         )
+        
+        # Fallback: if no peaks found, create candidates from AI viral segments or viral moments
+        if not clip_candidates and ai_viral_segments:
+            logger.info("virality.using_ai_segments_fallback", count=len(ai_viral_segments))
+            clip_candidates = _create_candidates_from_ai_segments(
+                ai_viral_segments, transcripts, min_dur, max_dur
+            )
+        
+        if not clip_candidates and analysis_data.get("viral_moments"):
+            logger.info("virality.using_viral_moments_fallback", count=len(analysis_data["viral_moments"]))
+            clip_candidates = _create_candidates_from_viral_moments(
+                analysis_data["viral_moments"], transcripts, min_dur, max_dur
+            )
         
         if progress_callback:
             progress_callback("find_peaks", 1.0, f"Found {len(clip_candidates)} candidates")
@@ -879,6 +1113,26 @@ def _create_clips_from_transcripts(
             transcript_text = " ".join(current_texts)
             title, description = _generate_viral_title_description(transcript_text, len(clips) + 1)
             
+            # Calculate actual grades based on transcript content
+            grades_data = engagement_scoring.generate_full_grades(
+                {
+                    "duration": min(potential_duration, max_dur),
+                    "avg_audio_energy": 0.5,  # Default since no audio data
+                    "avg_visual_interest": 0.5,  # Default since no visual data
+                },
+                transcript_text,
+                [],  # No timeline data in fallback
+            )
+            
+            # Calculate viral score from grades
+            grade_to_score = {"A": 8.5, "B": 7.0, "C": 5.5, "D": 4.0}
+            viral_score = (
+                grade_to_score.get(grades_data["hook"]["grade"], 5.5) * 0.35 +
+                grade_to_score.get(grades_data["flow"]["grade"], 5.5) * 0.20 +
+                grade_to_score.get(grades_data["value"]["grade"], 5.5) * 0.25 +
+                grade_to_score.get(grades_data["trend"]["grade"], 5.5) * 0.20
+            )
+            
             clip = Clip(
                 clip_batch_id=batch.id,
                 start_time_sec=current_start,
@@ -886,11 +1140,11 @@ def _create_clips_from_transcripts(
                 duration_sec=min(potential_duration, max_dur),
                 title=title,
                 description=description,
-                viral_score=5.0,
-                grade_hook="B",
-                grade_flow="B",
-                grade_value="B",
-                grade_trend="B",
+                viral_score=round(viral_score, 1),
+                grade_hook=grades_data["hook"]["grade"],
+                grade_flow=grades_data["flow"]["grade"],
+                grade_value=grades_data["value"]["grade"],
+                grade_trend=grades_data["trend"]["grade"],
                 language=config.get("language") or "en",
                 status="candidate",
             )
