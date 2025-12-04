@@ -46,6 +46,17 @@ class VideoAnalysis(Base, TimestampMixin):
     visual_peaks_json = Column(JSON)
     engagement_peaks_json = Column(JSON)
     
+    # AI Vision Analysis data
+    ai_vision_enabled = Column(Boolean, default=False)
+    ai_vision_timeline_json = Column(JSON)  # Per-frame AI vision data
+    ai_vision_summary_json = Column(JSON)  # Summary statistics
+    ai_viral_segments_json = Column(JSON)  # NEW: Full segment analysis with reasoning, categories, engagement_factors
+    avg_face_count = Column(Float)
+    face_presence_ratio = Column(Float)
+    dominant_scene_type = Column(String)
+    emotion_distribution_json = Column(JSON)
+    engagement_indicators_json = Column(JSON)
+    
     video = relationship("VideoSource", backref="analysis")
 
 

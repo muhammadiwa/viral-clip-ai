@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.models import VideoSource, SceneSegment, TranscriptSegment
-from app.services import audio_analysis, visual_analysis, sentiment_analysis
+from app.services import audio_analysis, visual_analysis, sentiment_analysis, ai_vision_analysis
 from app.services import utils
 
 logger = structlog.get_logger()
@@ -144,50 +144,127 @@ def analyze_video_comprehensive(
     """
     Perform comprehensive multi-modal analysis of a video.
     
+    Uses a hybrid approach:
+    - FFmpeg for audio energy and basic visual analysis
+    - AI Vision (optional) for accurate face/emotion detection
+    - Sentiment analysis for transcript hooks
+    
     Returns:
     - audio_timeline: per-second audio analysis
     - visual_timeline: per-second visual analysis
+    - ai_vision_timeline: per-second AI vision analysis (if enabled)
     - transcript_analysis: per-segment sentiment analysis
     - combined_timeline: merged engagement scores
     """
-    logger.info("segmentation.comprehensive_start", video_path=video_path, duration=duration)
+    logger.info(
+        "segmentation.comprehensive_start", 
+        video_path=video_path, 
+        duration=duration,
+        ai_vision_enabled=settings.ai_vision_enabled,
+    )
     
-    # 1. Audio Analysis (30% of work)
+    # 1. Audio Analysis (20% of work)
     if progress_callback:
         progress_callback(0.0, "Analyzing audio patterns...")
     audio_timeline = audio_analysis.calculate_energy_timeline(
         video_path, duration, window_size=1.0
     )
     if progress_callback:
-        progress_callback(0.2, "Finding audio peaks...")
+        progress_callback(0.15, "Finding audio peaks...")
     audio_peaks = audio_analysis.find_audio_peaks(audio_timeline, min_duration=5.0, top_n=20)
     
-    # 2. Visual Analysis (40% of work)
+    # 2. Basic Visual Analysis with FFmpeg (20% of work)
     if progress_callback:
-        progress_callback(0.3, "Analyzing visual content...")
+        progress_callback(0.2, "Analyzing visual motion...")
     visual_timeline = visual_analysis.calculate_visual_timeline(
         video_path, duration, sample_interval=1.0
     )
     if progress_callback:
-        progress_callback(0.6, "Finding visual peaks...")
+        progress_callback(0.35, "Finding visual peaks...")
     visual_peaks = visual_analysis.find_visual_peaks(visual_timeline, min_duration=5.0, top_n=20)
     
-    # 3. Transcript/Sentiment Analysis (20% of work)
+    # 3. AI Vision Analysis (30% of work) - if enabled
+    ai_vision_result = None
+    ai_vision_timeline = []
+    ai_viral_moments = []
+    ai_viral_segments = []
+    
+    if settings.ai_vision_enabled:
+        if progress_callback:
+            progress_callback(0.4, "Starting AI vision analysis...")
+        
+        def vision_progress(progress, message):
+            if progress_callback:
+                # Scale from 0.4 to 0.7
+                scaled = 0.4 + (progress * 0.3)
+                progress_callback(scaled, f"AI Vision: {message}")
+        
+        try:
+            # Convert transcripts to dict format for AI Vision
+            transcript_dicts = [
+                {"start_time_sec": t.start_time_sec, "end_time_sec": t.end_time_sec, "text": t.text}
+                for t in transcripts
+            ] if transcripts else []
+            
+            ai_vision_result = ai_vision_analysis.analyze_video_with_vision(
+                video_path,
+                duration,
+                progress_callback=vision_progress,
+                transcripts=transcript_dicts,  # Pass transcripts for context
+            )
+            ai_vision_timeline = ai_vision_result.get("timeline", [])
+            ai_viral_moments = ai_vision_result.get("viral_moments", [])
+            ai_viral_segments = ai_vision_result.get("viral_segments", [])
+            logger.info(
+                "segmentation.ai_vision_done",
+                viral_segments=len(ai_viral_segments),
+                viral_moments=len(ai_viral_moments),
+            )
+        except Exception as e:
+            logger.error("segmentation.ai_vision_failed", error=str(e))
+            ai_vision_result = None
+    else:
+        if progress_callback:
+            progress_callback(0.7, "AI Vision disabled, skipping...")
+    
+    # 4. Transcript/Sentiment Analysis (15% of work)
     if progress_callback:
-        progress_callback(0.7, "Analyzing transcript sentiment...")
+        progress_callback(0.75, "Analyzing transcript sentiment...")
     transcript_analysis = sentiment_analysis.analyze_transcript_segments(transcripts)
     if progress_callback:
-        progress_callback(0.85, "Finding viral moments...")
+        progress_callback(0.85, "Finding viral moments from transcript...")
     viral_moments = sentiment_analysis.find_viral_moments_from_transcript(
         transcript_analysis, min_score=0.3
     )
     
-    # 4. Combine into unified timeline (10% of work)
+    # 5. Combine into unified timeline (15% of work)
     if progress_callback:
-        progress_callback(0.9, "Merging analysis results...")
-    combined_timeline = _merge_timelines(
-        audio_timeline, visual_timeline, transcript_analysis, duration
+        progress_callback(0.9, "Merging all analysis results...")
+    combined_timeline = _merge_timelines_enhanced(
+        audio_timeline, 
+        visual_timeline, 
+        ai_vision_timeline,
+        transcript_analysis, 
+        duration
     )
+    
+    # Merge viral moments from AI vision with transcript viral moments
+    all_viral_moments = viral_moments.copy()
+    for ai_moment in ai_viral_moments:
+        # Add AI vision moments with adjusted format
+        all_viral_moments.append({
+            "start_time": ai_moment["timestamp"],
+            "end_time": ai_moment["timestamp"] + 5.0,  # Assume 5 second window
+            "text": "",
+            "viral_potential": ai_moment["score"],
+            "reason": ", ".join(ai_moment.get("reasons", [])),
+            "source": "ai_vision",
+            "emotions": ai_moment.get("emotions", []),
+            "indicators": ai_moment.get("indicators", []),
+        })
+    
+    # Sort by viral potential
+    all_viral_moments.sort(key=lambda x: x.get("viral_potential", 0), reverse=True)
     
     if progress_callback:
         progress_callback(1.0, "Analysis complete")
@@ -196,17 +273,23 @@ def analyze_video_comprehensive(
         "segmentation.comprehensive_done",
         audio_samples=len(audio_timeline),
         visual_samples=len(visual_timeline),
+        ai_vision_samples=len(ai_vision_timeline),
         transcript_segments=len(transcript_analysis),
+        total_viral_moments=len(all_viral_moments),
     )
     
     return {
         "audio_timeline": audio_timeline,
         "visual_timeline": visual_timeline,
+        "ai_vision_timeline": ai_vision_timeline,
+        "ai_vision_summary": ai_vision_result.get("summary") if ai_vision_result else None,
+        "ai_viral_segments": ai_viral_segments,  # NEW: Full segment analysis with reasoning
         "transcript_analysis": transcript_analysis,
         "combined_timeline": combined_timeline,
         "audio_peaks": audio_peaks,
         "visual_peaks": visual_peaks,
-        "viral_moments": viral_moments,
+        "viral_moments": all_viral_moments,
+        "ai_vision_enabled": settings.ai_vision_enabled and ai_vision_result is not None,
     }
 
 
@@ -216,9 +299,35 @@ def _merge_timelines(
     transcript_analysis: List[Dict[str, Any]],
     duration: float,
 ) -> List[Dict[str, Any]]:
-    """Merge audio, visual, and transcript analysis into a single timeline."""
+    """Merge audio, visual, and transcript analysis into a single timeline (legacy)."""
+    return _merge_timelines_enhanced(
+        audio_timeline, visual_timeline, [], transcript_analysis, duration
+    )
+
+
+def _merge_timelines_enhanced(
+    audio_timeline: List[Dict[str, Any]],
+    visual_timeline: List[Dict[str, Any]],
+    ai_vision_timeline: List[Dict[str, Any]],
+    transcript_analysis: List[Dict[str, Any]],
+    duration: float,
+) -> List[Dict[str, Any]]:
+    """
+    Merge audio, visual, AI vision, and transcript analysis into a single timeline.
+    
+    When AI Vision is available, it provides much more accurate:
+    - Face detection (real vs heuristic)
+    - Emotion detection
+    - Scene understanding
+    - Engagement indicators
+    
+    Weights are adjusted based on AI Vision availability.
+    """
     audio_lookup = {int(a["time"]): a for a in audio_timeline}
     visual_lookup = {int(v["time"]): v for v in visual_timeline}
+    ai_vision_lookup = {int(v["time"]): v for v in ai_vision_timeline}
+    
+    has_ai_vision = len(ai_vision_timeline) > 0
     
     def get_transcript_score(t: float) -> Tuple[float, str]:
         for seg in transcript_analysis:
@@ -232,37 +341,125 @@ def _merge_timelines(
     while t < duration:
         t_int = int(t)
         
+        # Audio data
         audio = audio_lookup.get(t_int, {})
         audio_energy = audio.get("energy", 0.5)
         audio_excitement = audio.get("excitement_score", 0.5)
         
+        # Basic visual data (FFmpeg)
         visual = visual_lookup.get(t_int, {})
-        visual_interest = visual.get("visual_interest", 0.5)
+        visual_interest_ffmpeg = visual.get("visual_interest", 0.5)
         motion = visual.get("motion_score", 0.5)
-        face = visual.get("face_likelihood", 0.5)
+        face_ffmpeg = visual.get("face_likelihood", 0.5)
         
+        # AI Vision data (if available)
+        ai_vision = ai_vision_lookup.get(t_int, {})
+        
+        # Transcript data
         transcript_score, emotion = get_transcript_score(t)
         
-        engagement_score = (
-            audio_energy * 0.15 +
-            audio_excitement * 0.15 +
-            visual_interest * 0.20 +
-            motion * 0.10 +
-            face * 0.15 +
-            transcript_score * 0.25
-        )
-        
-        combined.append({
-            "time": t,
-            "audio_energy": audio_energy,
-            "audio_excitement": audio_excitement,
-            "visual_interest": visual_interest,
-            "motion": motion,
-            "face_likelihood": face,
-            "transcript_score": transcript_score,
-            "emotion": emotion,
-            "engagement_score": engagement_score,
-        })
+        if has_ai_vision and ai_vision.get("ai_analyzed", False):
+            # Use AI Vision data for face and visual interest
+            face_count = ai_vision.get("face_count", 0)
+            face_likelihood = min(1.0, face_count * 0.5) if face_count > 0 else 0.2
+            
+            # Get detailed viral metrics from AI Vision
+            visual_impact = ai_vision.get("visual_impact", 0.5)
+            emotional_appeal = ai_vision.get("emotional_appeal", 0.5)
+            hook_potential = ai_vision.get("hook_potential", 0.5)
+            action_level = ai_vision.get("action_level", "medium")
+            
+            # Boost for emotions
+            face_emotions = ai_vision.get("face_emotions", [])
+            emotion_boost = 0.0
+            viral_emotions = {"happy", "surprised", "shocked", "excited"}
+            if any(em in viral_emotions for em in face_emotions):
+                emotion_boost = 0.1
+            
+            # AI visual interest (combined score)
+            ai_visual_interest = ai_vision.get("visual_interest_score", 0.5)
+            
+            # Engagement indicators boost
+            indicators = ai_vision.get("engagement_indicators", [])
+            indicator_boost = min(0.15, len(indicators) * 0.03)
+            
+            # Action level boost
+            action_boost = 0.0
+            if action_level == "high":
+                action_boost = 0.1
+            elif action_level == "medium":
+                action_boost = 0.05
+            
+            # Combined visual interest (blend AI and FFmpeg)
+            visual_interest = (ai_visual_interest * 0.7 + visual_interest_ffmpeg * 0.3)
+            
+            # Enhanced engagement score with AI Vision viral metrics
+            # Weights: Audio 20%, AI Vision 50%, Face/Motion 10%, Transcript 15%, Bonuses 5%
+            engagement_score = (
+                # Audio signals (20%)
+                audio_energy * 0.10 +
+                audio_excitement * 0.10 +
+                # AI Vision viral metrics (50%)
+                visual_impact * 0.15 +
+                emotional_appeal * 0.15 +
+                hook_potential * 0.20 +
+                # Face/motion (10%)
+                face_likelihood * 0.05 +
+                motion * 0.05 +
+                # Transcript (15%)
+                transcript_score * 0.15 +
+                # Bonuses (5%)
+                emotion_boost +
+                indicator_boost +
+                action_boost
+            )
+            
+            combined.append({
+                "time": t,
+                "audio_energy": audio_energy,
+                "audio_excitement": audio_excitement,
+                "visual_interest": visual_interest,
+                "motion": motion,
+                "face_likelihood": face_likelihood,
+                "face_count": face_count,
+                "face_emotions": face_emotions,
+                "engagement_indicators": indicators,
+                "transcript_score": transcript_score,
+                "emotion": emotion,
+                "engagement_score": min(1.0, engagement_score),
+                # Detailed viral metrics
+                "visual_impact": visual_impact,
+                "emotional_appeal": emotional_appeal,
+                "hook_potential": hook_potential,
+                "action_level": action_level,
+                "ai_vision_used": True,
+            })
+        else:
+            # Fallback to FFmpeg-only analysis
+            engagement_score = (
+                audio_energy * 0.15 +
+                audio_excitement * 0.15 +
+                visual_interest_ffmpeg * 0.20 +
+                motion * 0.10 +
+                face_ffmpeg * 0.15 +
+                transcript_score * 0.25
+            )
+            
+            combined.append({
+                "time": t,
+                "audio_energy": audio_energy,
+                "audio_excitement": audio_excitement,
+                "visual_interest": visual_interest_ffmpeg,
+                "motion": motion,
+                "face_likelihood": face_ffmpeg,
+                "face_count": 0,
+                "face_emotions": [],
+                "engagement_indicators": [],
+                "transcript_score": transcript_score,
+                "emotion": emotion,
+                "engagement_score": engagement_score,
+                "ai_vision_used": False,
+            })
         
         t += 1.0
     

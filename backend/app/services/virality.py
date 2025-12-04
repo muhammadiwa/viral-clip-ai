@@ -90,6 +90,87 @@ def clear_llm_cache() -> None:
     logger.info("virality.cache_cleared")
 
 
+def _enrich_candidates_with_ai_segments(
+    engagement_peaks: List[Dict[str, Any]],
+    transcripts: List,
+    ai_viral_segments: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    Enrich engagement peaks with transcript and AI Vision segment data.
+    
+    This is a shared function used by both db_analysis and fresh analysis paths
+    to avoid code duplication.
+    
+    Args:
+        engagement_peaks: List of peaks from find_engagement_peaks
+        transcripts: List of TranscriptSegment objects
+        ai_viral_segments: List of AI viral segment analysis results
+    
+    Returns:
+        List of enriched clip candidates
+    """
+    # Create lookup for AI viral segments by time range
+    def find_ai_segment(start: float, end: float) -> Optional[Dict]:
+        for seg in ai_viral_segments:
+            seg_start = seg.get("start_time", 0)
+            seg_end = seg.get("end_time", 0)
+            # Check for overlap
+            if seg_end > start and seg_start < end:
+                return seg
+        return None
+    
+    clip_candidates = []
+    
+    for peak in engagement_peaks:
+        transcript_text = sentiment_analysis.get_transcript_for_time_range(
+            transcripts, peak["start_time"], peak["end_time"]
+        )
+        hook_analysis = sentiment_analysis.analyze_text_for_hook_strength(transcript_text)
+        
+        # Get AI Vision segment data (format with reasoning)
+        ai_segment = find_ai_segment(peak["start_time"], peak["end_time"])
+        
+        # Default values
+        ai_reasoning = ""
+        categories = []
+        engagement_factors = []
+        ai_hook_potential = 0.5
+        is_viral_candidate = False
+        ai_viral_score = 0.5
+        action_level = "medium"
+        
+        if ai_segment:
+            ai_analysis = ai_segment.get("ai_analysis", {})
+            ai_reasoning = ai_analysis.get("reasoning", "")
+            categories = ai_analysis.get("categories", [])
+            engagement_factors = ai_analysis.get("engagement_factors", [])
+            ai_hook_potential = ai_analysis.get("hook_potential", 0.5)
+            is_viral_candidate = ai_segment.get("is_viral_candidate", False)
+            ai_viral_score = ai_segment.get("viral_score", 0.5)
+            action_level = ai_segment.get("action_level", "medium")
+        
+        candidate = {
+            **peak,
+            "transcript_preview": transcript_text[:300],
+            "transcript_full": transcript_text,
+            "hook_strength": hook_analysis["hook_strength"],
+            "hook_reasons": hook_analysis.get("reasons", []),
+            "engagement_score": peak["avg_score"],
+            # AI Vision segment data with reasoning
+            "ai_reasoning": ai_reasoning,
+            "categories": categories,
+            "engagement_factors": engagement_factors,
+            "hook_potential": ai_hook_potential,
+            "is_viral_candidate": is_viral_candidate,
+            "viral_score": ai_viral_score,
+            "action_level": action_level,
+        }
+        clip_candidates.append(candidate)
+    
+    clip_candidates.sort(key=lambda x: x["engagement_score"], reverse=True)
+    return clip_candidates
+
+
 def _build_enhanced_prompt(
     config: dict,
     clip_candidates: List[Dict[str, Any]],
@@ -100,15 +181,38 @@ def _build_enhanced_prompt(
     
     candidates_text = []
     for i, clip in enumerate(clip_candidates[:15], 1):
+        # Build AI Vision info - NEW FORMAT with reasoning
+        ai_analysis_info = ""
+        
+        # Check for new format with reasoning and categories
+        if clip.get("ai_reasoning") or clip.get("categories"):
+            reasoning = clip.get("ai_reasoning", "")
+            categories = clip.get("categories", [])
+            engagement_factors = clip.get("engagement_factors", [])
+            
+            ai_analysis_info = f"""
+- AI ANALYSIS:
+  • Reasoning: {reasoning[:200]}
+  • Categories: {', '.join(categories[:5]) if categories else 'none'}
+  • Engagement Factors: {', '.join(engagement_factors[:5]) if engagement_factors else 'none'}
+  • Hook Potential: {clip.get('hook_potential', 0.5):.2f}
+  • Is Viral Candidate: {clip.get('is_viral_candidate', False)}"""
+        
+        # Fallback to old format
+        elif clip.get("visual_impact") or clip.get("engagement_indicators"):
+            indicators = clip.get("engagement_indicators", [])
+            ai_analysis_info = f"""
+- AI ANALYSIS:
+  • Hook Potential: {clip.get('hook_potential', 0.5):.2f}
+  • Engagement Indicators: {', '.join(indicators[:5]) if indicators else 'none'}"""
+        
         candidates_text.append(f"""
 Candidate #{i}:
 - Time: {clip['start_time']:.1f}s - {clip['end_time']:.1f}s ({clip['duration']:.1f}s)
-- Engagement Score: {clip['engagement_score']:.2f}/1.0
+- Viral Score: {clip.get('viral_score', clip.get('engagement_score', 0.5)):.2f}/1.0
 - Dominant Signal: {clip.get('dominant_signal', 'mixed')}
-- Emotion: {clip.get('primary_emotion', 'neutral')}
 - Audio Energy: {clip.get('avg_audio_energy', 0.5):.2f}
-- Visual Interest: {clip.get('avg_visual_interest', 0.5):.2f}
-- Hook Strength: {clip.get('hook_strength', 0.5):.2f}
+- Hook Strength: {clip.get('hook_strength', 0.5):.2f}{ai_analysis_info}
 - Transcript Preview: "{clip.get('transcript_preview', '')[:300]}..."
 """)
     
@@ -329,6 +433,7 @@ def generate_clips_for_batch(
             "audio_peaks": existing_analysis.audio_peaks_json or [],
             "visual_peaks": existing_analysis.visual_peaks_json or [],
             "viral_moments": existing_analysis.engagement_peaks_json or [],
+            "ai_viral_segments": existing_analysis.ai_viral_segments_json or [],  # NEW: Load AI viral segments
             "transcript_analysis": [],
         }
         db_analysis_used = True
@@ -348,24 +453,11 @@ def generate_clips_for_batch(
             top_n=15,
         )
         
-        # Enrich candidates with transcript and hook analysis
-        for peak in engagement_peaks:
-            transcript_text = sentiment_analysis.get_transcript_for_time_range(
-                transcripts, peak["start_time"], peak["end_time"]
-            )
-            hook_analysis = sentiment_analysis.analyze_text_for_hook_strength(transcript_text)
-            
-            candidate = {
-                **peak,
-                "transcript_preview": transcript_text[:300],
-                "transcript_full": transcript_text,
-                "hook_strength": hook_analysis["hook_strength"],
-                "hook_reasons": hook_analysis.get("reasons", []),
-                "engagement_score": peak["avg_score"],
-            }
-            clip_candidates.append(candidate)
-        
-        clip_candidates.sort(key=lambda x: x["engagement_score"], reverse=True)
+        # Enrich candidates using shared helper function
+        ai_viral_segments = analysis_data.get("ai_viral_segments", [])
+        clip_candidates = _enrich_candidates_with_ai_segments(
+            engagement_peaks, transcripts, ai_viral_segments
+        )
         
         if progress_callback:
             progress_callback("find_peaks", 1.0, f"Found {len(clip_candidates)} candidates")
@@ -461,25 +553,11 @@ def generate_clips_for_batch(
             top_n=15,
         )
         
-        # Enrich candidates with transcript and hook analysis
-        clip_candidates = []
-        for peak in engagement_peaks:
-            transcript_text = sentiment_analysis.get_transcript_for_time_range(
-                transcripts, peak["start_time"], peak["end_time"]
-            )
-            hook_analysis = sentiment_analysis.analyze_text_for_hook_strength(transcript_text)
-            
-            candidate = {
-                **peak,
-                "transcript_preview": transcript_text[:300],
-                "transcript_full": transcript_text,
-                "hook_strength": hook_analysis["hook_strength"],
-                "hook_reasons": hook_analysis.get("reasons", []),
-                "engagement_score": peak["avg_score"],
-            }
-            clip_candidates.append(candidate)
-        
-        clip_candidates.sort(key=lambda x: x["engagement_score"], reverse=True)
+        # Enrich candidates using shared helper function
+        ai_viral_segments = analysis_data.get("ai_viral_segments", [])
+        clip_candidates = _enrich_candidates_with_ai_segments(
+            engagement_peaks, transcripts, ai_viral_segments
+        )
         
         if progress_callback:
             progress_callback("find_peaks", 1.0, f"Found {len(clip_candidates)} candidates")

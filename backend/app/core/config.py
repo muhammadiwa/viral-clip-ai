@@ -29,9 +29,16 @@ class Settings(BaseSettings):
     openai_whisper_model: str = Field(default="whisper-1", alias="OPENAI_WHISPER_MODEL")
     openai_responses_model: str = Field(default="gpt-4o-mini", alias="OPENAI_RESPONSES_MODEL")
     openai_tts_model: str = Field(default="gpt-4o-mini-tts", alias="OPENAI_TTS_MODEL")
+    openai_vision_model: str = Field(default="gpt-4o-mini", alias="OPENAI_VISION_MODEL")
     openai_voice: str = Field(default="alloy", alias="OPENAI_VOICE")
     credit_cost_per_minute: int = Field(default=1, alias="CREDIT_COST_PER_MINUTE")
     credit_cost_per_export: int = Field(default=1, alias="CREDIT_COST_PER_EXPORT")
+    
+    # AI Vision Analysis Settings
+    ai_vision_enabled: bool = Field(default=True, alias="AI_VISION_ENABLED")
+    ai_vision_sample_interval: float = Field(default=5.0, alias="AI_VISION_SAMPLE_INTERVAL")  # seconds between frames
+    ai_vision_batch_size: int = Field(default=10, alias="AI_VISION_BATCH_SIZE")  # frames per API call
+    ai_vision_max_frames: int = Field(default=120, alias="AI_VISION_MAX_FRAMES")  # max frames to analyze
 
     # Upload limits
     max_upload_size_mb: int = Field(default=2048, alias="MAX_UPLOAD_SIZE_MB")

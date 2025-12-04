@@ -129,9 +129,11 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
         tracker.update(0.5, "Processing visual data")
         
         # Save analysis to database
+        ai_vision_summary = analysis_data.get("ai_vision_summary") or {}
+        
         video_analysis = VideoAnalysis(
             video_source_id=video.id,
-            analysis_version="v2",
+            analysis_version="v3",  # Updated version with AI Vision
             duration_analyzed=duration,
             avg_audio_energy=analysis_data.get("avg_audio_energy", 0.5),
             avg_visual_interest=analysis_data.get("avg_visual_interest", 0.5),
@@ -145,10 +147,24 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
             audio_peaks_json=analysis_data.get("audio_peaks"),
             visual_peaks_json=analysis_data.get("visual_peaks"),
             engagement_peaks_json=analysis_data.get("viral_moments"),
+            # AI Vision data
+            ai_vision_enabled=analysis_data.get("ai_vision_enabled", False),
+            ai_vision_timeline_json=analysis_data.get("ai_vision_timeline"),
+            ai_vision_summary_json=ai_vision_summary,
+            ai_viral_segments_json=analysis_data.get("ai_viral_segments"),  # NEW: Full segment analysis
+            avg_face_count=ai_vision_summary.get("avg_face_count"),
+            face_presence_ratio=ai_vision_summary.get("face_presence_ratio"),
+            dominant_scene_type=ai_vision_summary.get("dominant_scene_type"),
+            emotion_distribution_json=ai_vision_summary.get("emotion_distribution"),
+            engagement_indicators_json=ai_vision_summary.get("engagement_indicator_counts"),
         )
         db.add(video_analysis)
         db.commit()
-        logger.info("worker.analysis_saved", video_id=video.id)
+        logger.info(
+            "worker.analysis_saved", 
+            video_id=video.id,
+            ai_vision_enabled=analysis_data.get("ai_vision_enabled", False),
+        )
         
         # Save segment analysis for each transcript segment
         _save_segment_analyses(db, segments)
