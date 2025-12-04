@@ -26,6 +26,7 @@ from app.models import (
     AIUsageLog,
     VideoAnalysis,
 )
+from app.models.analysis import ClipAnalysis
 from app.services import utils
 from app.services import (
     audio_analysis,
@@ -584,6 +585,9 @@ def generate_clips_for_batch(
         db, clips, video, config, clip_candidates, llm_clips, response_text, analysis_data
     )
     
+    # Save detailed clip analysis
+    _save_clip_analyses(db, clips, analysis_data, llm_clips)
+    
     batch.status = "ready" if clips else "failed"
     db.commit()
     
@@ -888,3 +892,121 @@ def _avg_from_timeline(timeline: List[Dict], key: str, default: float = 0.5) -> 
         return default
     values = [t.get(key, default) for t in timeline]
     return sum(values) / len(values)
+
+
+def _save_clip_analyses(
+    db: Session, 
+    clips: List[Clip], 
+    analysis_data: Optional[Dict], 
+    llm_clips: List[Dict]
+):
+    """
+    Save detailed analysis for each generated clip.
+    
+    This populates the clip_analyses table with:
+    - Component scores (audio, visual, hook, etc.)
+    - Grade details
+    - Strengths and weaknesses
+    """
+    for clip in clips:
+        # Check if analysis already exists
+        existing = db.query(ClipAnalysis).filter(ClipAnalysis.clip_id == clip.id).first()
+        if existing:
+            continue
+        
+        # Get timeline data for this clip's time range
+        timeline_data = []
+        if analysis_data and analysis_data.get("combined_timeline"):
+            timeline_data = [
+                t for t in analysis_data["combined_timeline"] 
+                if clip.start_time_sec <= t.get("time", 0) < clip.end_time_sec
+            ]
+        
+        # Calculate component scores
+        audio_energy = _avg_from_timeline(timeline_data, "audio_energy", 0.5)
+        audio_excitement = _avg_from_timeline(timeline_data, "audio_excitement", 0.5)
+        visual_interest = _avg_from_timeline(timeline_data, "visual_interest", 0.5)
+        motion = _avg_from_timeline(timeline_data, "motion", 0.5)
+        face_likelihood = _avg_from_timeline(timeline_data, "face_likelihood", 0.5)
+        
+        # Find matching LLM clip for additional data
+        llm_clip_data = None
+        for llm_clip in llm_clips:
+            llm_start = float(llm_clip.get("start_sec", 0))
+            if abs(llm_start - clip.start_time_sec) < 2.0:
+                llm_clip_data = llm_clip
+                break
+        
+        # Get grades from clip or LLM data
+        grades = llm_clip_data.get("grades", {}) if llm_clip_data else {}
+        
+        # Calculate data-driven score
+        data_score = (
+            audio_energy * 2.0 +
+            audio_excitement * 2.0 +
+            visual_interest * 2.0 +
+            motion * 1.5 +
+            face_likelihood * 1.5
+        )  # Max ~10
+        
+        llm_score = float(llm_clip_data.get("viral_score", 0)) if llm_clip_data else 0
+        final_score = clip.viral_score or ((data_score + llm_score) / 2 if llm_score > 0 else data_score)
+        
+        # Determine strengths and weaknesses
+        strengths = []
+        weaknesses = []
+        
+        if audio_energy > 0.6:
+            strengths.append("High audio energy - engaging sound")
+        elif audio_energy < 0.3:
+            weaknesses.append("Low audio energy - may feel flat")
+        
+        if visual_interest > 0.6:
+            strengths.append("Visually interesting content")
+        elif visual_interest < 0.3:
+            weaknesses.append("Low visual interest - consider more dynamic visuals")
+        
+        if face_likelihood > 0.5:
+            strengths.append("Face presence increases engagement")
+        
+        if clip.grade_hook in ["A", "B"]:
+            strengths.append(f"Strong opening hook (Grade {clip.grade_hook})")
+        elif clip.grade_hook in ["D"]:
+            weaknesses.append("Weak opening hook - first 3 seconds need work")
+        
+        if clip.grade_flow in ["A", "B"]:
+            strengths.append("Good pacing and flow")
+        elif clip.grade_flow in ["D"]:
+            weaknesses.append("Pacing issues - may feel choppy")
+        
+        # Create ClipAnalysis record
+        clip_analysis = ClipAnalysis(
+            clip_id=clip.id,
+            audio_energy_score=round(audio_energy * 10, 2),
+            audio_excitement_score=round(audio_excitement * 10, 2),
+            visual_interest_score=round(visual_interest * 10, 2),
+            motion_score=round(motion * 10, 2),
+            face_presence_score=round(face_likelihood * 10, 2),
+            hook_strength_score=_grade_to_score(clip.grade_hook),
+            sentiment_intensity_score=_grade_to_score(clip.grade_value),
+            hook_grade_json={"grade": clip.grade_hook, "analysis": grades.get("hook", "")},
+            flow_grade_json={"grade": clip.grade_flow, "analysis": grades.get("flow", "")},
+            value_grade_json={"grade": clip.grade_value, "analysis": grades.get("value", "")},
+            trend_grade_json={"grade": clip.grade_trend, "analysis": grades.get("trend", "")},
+            data_driven_score=round(data_score, 2),
+            llm_score=round(llm_score, 2) if llm_score else None,
+            final_score=round(final_score, 2),
+            strengths=strengths,
+            weaknesses=weaknesses,
+            timeline_data_json=timeline_data[:50] if timeline_data else None,  # Limit size
+        )
+        db.add(clip_analysis)
+    
+    db.commit()
+    logger.info("virality.clip_analyses_saved", count=len(clips))
+
+
+def _grade_to_score(grade: str) -> float:
+    """Convert letter grade to numeric score (0-10)."""
+    grade_map = {"A": 9.0, "B": 7.0, "C": 5.0, "D": 3.0}
+    return grade_map.get(grade, 5.0)

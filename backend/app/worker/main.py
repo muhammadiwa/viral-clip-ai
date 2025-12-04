@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment, VideoAnalysis
-from app.services import transcription, segmentation, subtitles, exporting, utils, virality
+from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment, VideoAnalysis, TranscriptSegment
+from app.models.analysis import SegmentAnalysis
+from app.services import transcription, segmentation, subtitles, exporting, utils, virality, sentiment_analysis
 from app.services.progress_tracker import (
     ProgressTracker,
     create_transcription_tracker,
@@ -34,6 +35,37 @@ def _fail_job(db: Session, job: ProcessingJob, error: str):
     if job.video:
         job.video.status = "failed"
     db.commit()
+
+
+def _save_segment_analyses(db: Session, segments: list):
+    """Save sentiment/hook analysis for each transcript segment."""
+    for seg in segments:
+        # Check if analysis already exists
+        existing = db.query(SegmentAnalysis).filter(
+            SegmentAnalysis.transcript_segment_id == seg.id
+        ).first()
+        if existing:
+            continue
+        
+        # Analyze segment
+        analysis = sentiment_analysis.analyze_segment(seg)
+        
+        segment_analysis = SegmentAnalysis(
+            transcript_segment_id=seg.id,
+            sentiment_score=analysis["sentiment"]["sentiment"],
+            sentiment_intensity=analysis["sentiment"]["intensity"],
+            emotion=analysis["sentiment"]["emotion"],
+            hook_word_count=analysis["hooks"]["total_count"],
+            hook_words_found=analysis["hooks"]["found_words"],
+            hook_score=analysis["hooks"]["hook_score"],
+            has_question=analysis["questions"]["has_question"],
+            has_cta=analysis["cta"]["has_cta"],
+            viral_potential=analysis["viral_potential"],
+        )
+        db.add(segment_analysis)
+    
+    db.commit()
+    logger.info("worker.segment_analyses_saved", count=len(segments))
 
 
 def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
@@ -117,6 +149,10 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
         db.add(video_analysis)
         db.commit()
         logger.info("worker.analysis_saved", video_id=video.id)
+        
+        # Save segment analysis for each transcript segment
+        _save_segment_analyses(db, segments)
+        
         tracker.complete_step("Analysis saved to database")
     
     # Step 6: Segmentation
