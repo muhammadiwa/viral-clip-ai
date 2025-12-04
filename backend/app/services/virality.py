@@ -27,7 +27,7 @@ from app.models import (
     VideoAnalysis,
 )
 from app.models.analysis import ClipAnalysis
-from app.services import utils
+from app.services import utils, cache
 from app.services import (
     audio_analysis,
     visual_analysis,
@@ -38,9 +38,6 @@ from app.services import (
 
 logger = structlog.get_logger()
 settings = get_settings()
-
-# In-memory cache
-_llm_cache: dict[str, dict] = {}
 
 
 def _target_duration(preset: str) -> Tuple[float, float]:
@@ -65,29 +62,32 @@ def _compute_cache_key(video_source_id: int, config: dict, transcript_hash: str)
         "processing_timeframe_start": config.get("processing_timeframe_start"),
         "processing_timeframe_end": config.get("processing_timeframe_end"),
     }, sort_keys=True)
-    key_content = f"{video_source_id}:{config_str}:{transcript_hash}:v2"
+    key_content = f"{video_source_id}:{config_str}:{transcript_hash}:v3"
     return hashlib.sha256(key_content.encode()).hexdigest()[:32]
 
 
 def _get_cached_response(cache_key: str) -> Optional[dict]:
-    cached = _llm_cache.get(cache_key)
+    """Get cached response from Redis."""
+    cached = cache.get_cached(cache_key, prefix="virality")
     if cached:
-        logger.info("virality.cache_hit", cache_key=cache_key)
+        logger.info("virality.redis_cache_hit", cache_key=cache_key)
         return cached
     return None
 
 
 def _set_cached_response(cache_key: str, data: dict) -> None:
-    _llm_cache[cache_key] = data
-    if len(_llm_cache) > 100:
-        oldest_key = next(iter(_llm_cache))
-        del _llm_cache[oldest_key]
-    logger.info("virality.cache_set", cache_key=cache_key)
+    """Set cached response in Redis."""
+    success = cache.set_cached(cache_key, data, prefix="virality")
+    if success:
+        logger.info("virality.redis_cache_set", cache_key=cache_key)
+    else:
+        logger.warning("virality.redis_cache_set_failed", cache_key=cache_key)
 
 
 def clear_llm_cache() -> None:
-    _llm_cache.clear()
-    logger.info("virality.cache_cleared")
+    """Clear all virality cache from Redis."""
+    deleted = cache.clear_cache(prefix="virality")
+    logger.info("virality.cache_cleared", deleted_keys=deleted)
 
 
 def _create_candidates_from_ai_segments(

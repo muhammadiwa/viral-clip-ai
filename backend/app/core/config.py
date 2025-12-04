@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expires_minutes: int = Field(default=60, alias="JWT_EXPIRES_MINUTES")
 
+    # Redis settings
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    redis_cache_ttl: int = Field(default=3600, alias="REDIS_CACHE_TTL")  # 1 hour default
+
     backend_cors_origins_raw: str = Field(default="http://localhost:5173", alias="BACKEND_CORS_ORIGINS")
     ffmpeg_bin: str = Field(default="ffmpeg", alias="FFMPEG_BIN")
     ffprobe_bin: str = Field(default="ffprobe", alias="FFPROBE_BIN")
