@@ -285,6 +285,191 @@ def _enrich_candidates_with_ai_segments(
     return clip_candidates
 
 
+def _generate_smart_hashtags(
+    transcript_text: str,
+    video_type: str,
+    categories: List[str],
+    title: str,
+) -> List[str]:
+    """
+    Generate smart, viral hashtags based on clip content.
+    
+    Combines:
+    - Content-based hashtags from transcript
+    - Video type specific hashtags
+    - Trending/viral hashtags
+    - Category-based hashtags
+    """
+    hashtags = set()
+    
+    # 1. Always include viral/trending hashtags
+    viral_base = ["fyp", "viral", "foryou", "trending"]
+    hashtags.update(viral_base[:2])  # Add fyp and viral
+    
+    # 2. Video type specific hashtags
+    video_type_tags = {
+        "podcast": ["podcast", "podcastclips", "podcaster", "conversation", "talk"],
+        "interview": ["interview", "exclusive", "behindthescenes", "celebrity", "qa"],
+        "tutorial": ["tutorial", "howto", "tips", "learn", "education", "lifehack"],
+        "vlog": ["vlog", "dayinmylife", "lifestyle", "daily", "reallife"],
+        "gaming": ["gaming", "gamer", "gameplay", "twitch", "streamer", "esports"],
+        "comedy": ["comedy", "funny", "humor", "lol", "meme", "jokes"],
+        "motivation": ["motivation", "inspiration", "mindset", "success", "grind"],
+        "fitness": ["fitness", "workout", "gym", "health", "fitnessmotivation"],
+        "cooking": ["cooking", "recipe", "foodie", "chef", "foodtok"],
+        "music": ["music", "song", "artist", "newmusic", "musicvideo"],
+        "news": ["news", "breaking", "update", "current", "trending"],
+        "reaction": ["reaction", "react", "firsttime", "watching", "response"],
+        "storytime": ["storytime", "story", "pov", "truestory", "mystory"],
+    }
+    
+    vtype = video_type.lower() if video_type else "unknown"
+    if vtype in video_type_tags:
+        hashtags.update(video_type_tags[vtype][:3])
+    
+    # 3. Category-based hashtags
+    category_tags = {
+        "emotional": ["emotional", "feels", "touching", "heartfelt"],
+        "funny": ["funny", "hilarious", "comedy", "lol"],
+        "shocking": ["shocking", "unexpected", "plot_twist", "mindblown"],
+        "educational": ["educational", "didyouknow", "facts", "learning"],
+        "inspirational": ["inspirational", "motivation", "believe", "dreams"],
+        "dramatic": ["dramatic", "intense", "suspense", "drama"],
+        "wholesome": ["wholesome", "heartwarming", "cute", "adorable"],
+        "action": ["action", "epic", "intense", "adrenaline"],
+        "relatable": ["relatable", "samehere", "mood", "meirl"],
+    }
+    
+    for cat in categories:
+        cat_lower = cat.lower()
+        for key, tags in category_tags.items():
+            if key in cat_lower:
+                hashtags.update(tags[:2])
+                break
+    
+    # 4. Extract keywords from transcript for content-specific hashtags
+    transcript_lower = transcript_text.lower() if transcript_text else ""
+    
+    # Topic detection keywords
+    topic_keywords = {
+        "money": ["money", "finance", "rich", "wealth", "investing"],
+        "love": ["love", "relationship", "dating", "romance"],
+        "business": ["business", "entrepreneur", "startup", "hustle"],
+        "tech": ["tech", "technology", "ai", "coding", "software"],
+        "travel": ["travel", "adventure", "explore", "wanderlust"],
+        "food": ["food", "foodie", "delicious", "yummy", "tasty"],
+        "fashion": ["fashion", "style", "outfit", "ootd"],
+        "beauty": ["beauty", "makeup", "skincare", "glow"],
+        "sports": ["sports", "athlete", "training", "champion"],
+        "art": ["art", "creative", "artist", "design"],
+        "science": ["science", "research", "discovery", "experiment"],
+        "history": ["history", "historical", "past", "ancient"],
+        "politics": ["politics", "government", "election", "debate"],
+        "health": ["health", "wellness", "healthy", "selfcare"],
+        "family": ["family", "parenting", "kids", "mom", "dad"],
+        "pets": ["pets", "dog", "cat", "animals", "cute"],
+        "car": ["car", "cars", "automotive", "driving"],
+        "crypto": ["crypto", "bitcoin", "blockchain", "nft"],
+    }
+    
+    for topic, tags in topic_keywords.items():
+        if topic in transcript_lower:
+            hashtags.update(tags[:2])
+    
+    # 5. Extract potential hashtags from title
+    if title:
+        title_words = title.lower().split()
+        power_words = ["insane", "shocking", "unbelievable", "epic", "crazy", "amazing", 
+                       "secret", "truth", "exposed", "revealed", "finally", "best", "worst"]
+        for word in title_words:
+            clean_word = ''.join(c for c in word if c.isalnum())
+            if clean_word in power_words:
+                hashtags.add(clean_word)
+    
+    # 6. Add engagement hashtags
+    engagement_tags = ["mustwatch", "watchthis", "dontmiss", "waitforit", "checkthisout"]
+    hashtags.add(engagement_tags[0])
+    
+    # Convert to list and limit
+    result = list(hashtags)
+    
+    # Prioritize: viral base first, then others
+    priority_order = ["fyp", "viral", "foryou", "trending"]
+    sorted_result = []
+    for tag in priority_order:
+        if tag in result:
+            sorted_result.append(tag)
+            result.remove(tag)
+    
+    sorted_result.extend(result)
+    
+    # Return max 10 hashtags
+    return sorted_result[:10]
+
+
+def _generate_hashtags_with_llm(
+    transcript_text: str,
+    title: str,
+    video_type: str,
+) -> List[str]:
+    """Generate hashtags using LLM for more contextual results."""
+    client = utils.get_openai_client()
+    
+    if not client or not transcript_text.strip():
+        return _generate_smart_hashtags(transcript_text, video_type, [], title)
+    
+    try:
+        prompt = f"""Generate 8-10 viral hashtags for this social media clip.
+
+TITLE: "{title}"
+VIDEO TYPE: {video_type}
+TRANSCRIPT PREVIEW: "{transcript_text[:400]}"
+
+RULES:
+- Include #fyp and #viral
+- Add niche-specific hashtags based on content
+- Include trending hashtags relevant to the topic
+- Mix broad reach tags with specific niche tags
+- NO spaces in hashtags, use camelCase for multi-word
+- Return ONLY hashtags separated by spaces, no # symbol
+
+Example output: fyp viral podcast motivation mindset success entrepreneur grind
+
+Output hashtags only:"""
+
+        response = client.responses.create(
+            model=settings.openai_responses_model,
+            input=[
+                {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
+            ],
+            temperature=0.7,
+        )
+        
+        resp_text = _extract_response_text(response)
+        if resp_text:
+            # Parse hashtags from response
+            tags = resp_text.strip().replace("#", "").split()
+            # Clean and validate
+            clean_tags = []
+            for tag in tags:
+                clean = ''.join(c for c in tag if c.isalnum() or c == '_')
+                if clean and len(clean) > 1:
+                    clean_tags.append(clean.lower())
+            
+            if clean_tags:
+                # Ensure fyp and viral are included
+                if "fyp" not in clean_tags:
+                    clean_tags.insert(0, "fyp")
+                if "viral" not in clean_tags:
+                    clean_tags.insert(1, "viral")
+                return clean_tags[:10]
+    except Exception as e:
+        logger.warning("virality.hashtag_gen_failed", error=str(e))
+    
+    # Fallback to rule-based
+    return _generate_smart_hashtags(transcript_text, video_type, [], title)
+
+
 def _build_enhanced_prompt(
     config: dict,
     clip_candidates: List[Dict[str, Any]],
@@ -1189,8 +1374,10 @@ def _generate_thumbnails_and_context(
             clip.thumbnail_path = video.thumbnail_path
             logger.info("clip.using_video_thumbnail", clip_id=clip.id)
         
-        # Find matching LLM clip data for hashtags
+        # Find matching LLM clip data and candidate data
         clip_llm_data = None
+        clip_candidate_data = None
+        
         if llm_clips:
             for llm_clip in llm_clips:
                 llm_start = float(llm_clip.get("start_sec", 0))
@@ -1198,15 +1385,50 @@ def _generate_thumbnails_and_context(
                     clip_llm_data = llm_clip
                     break
         
+        if clip_candidates:
+            for candidate in clip_candidates:
+                if abs(candidate.get("start_time", 0) - clip.start_time_sec) < 2.0:
+                    clip_candidate_data = candidate
+                    break
+        
+        # Get video type and categories for hashtag generation
+        video_type = clip_llm_data.get("detected_video_type", "unknown") if clip_llm_data else "unknown"
+        categories = clip_candidate_data.get("categories", []) if clip_candidate_data else []
+        
+        # Get transcript for this clip
+        transcript_text = clip_candidate_data.get("transcript_full", "") if clip_candidate_data else ""
+        if not transcript_text and clip.description:
+            transcript_text = clip.description
+        
+        # Generate smart hashtags
+        if clip_llm_data and clip_llm_data.get("hashtags"):
+            # Use LLM-generated hashtags but enhance them
+            llm_hashtags = clip_llm_data.get("hashtags", [])
+            smart_hashtags = _generate_smart_hashtags(
+                transcript_text, video_type, categories, clip.title or ""
+            )
+            # Merge: LLM hashtags first, then smart ones (deduplicated)
+            final_hashtags = list(llm_hashtags)
+            for tag in smart_hashtags:
+                if tag not in final_hashtags:
+                    final_hashtags.append(tag)
+            final_hashtags = final_hashtags[:10]
+        else:
+            # Generate hashtags using LLM or fallback to smart generation
+            final_hashtags = _generate_hashtags_with_llm(
+                transcript_text, clip.title or "", video_type
+            )
+        
         db.add(ClipLLMContext(
             clip_id=clip.id,
             prompt=_build_enhanced_prompt(config, clip_candidates[:5], config.get("include_specific_moments", "")) if clip_candidates else "",
             response_json={
                 "llm_clips": llm_clips[:5] if llm_clips else [],
                 "raw_text": response_text[:1000],
-                "hashtags": clip_llm_data.get("hashtags", ["viral", "trending", "fyp"]) if clip_llm_data else ["viral", "trending", "fyp"],
+                "hashtags": final_hashtags,
                 "hook_text": clip_llm_data.get("hook_text", "") if clip_llm_data else "",
-                "detected_video_type": clip_llm_data.get("detected_video_type", "unknown") if clip_llm_data else "unknown",
+                "detected_video_type": video_type,
+                "categories": categories,
                 "analysis_summary": {
                     "audio_peaks": len(analysis_data.get("audio_peaks", [])) if analysis_data else 0,
                     "visual_peaks": len(analysis_data.get("visual_peaks", [])) if analysis_data else 0,

@@ -116,3 +116,49 @@ def download_clip(
         filename=f"clip-{clip.id}-{clip.title or 'video'}.mp4",
         media_type="video/mp4",
     )
+
+
+@router.post("/clips/{clip_id}/regenerate-hashtags")
+def regenerate_hashtags(
+    clip_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Regenerate hashtags for a clip using AI."""
+    from app.services.virality import _generate_hashtags_with_llm
+    
+    clip = db.query(Clip).filter(Clip.id == clip_id).first()
+    if not clip or clip.batch.video.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    
+    # Get transcript for this clip
+    transcript = (
+        db.query(TranscriptSegment)
+        .filter(
+            TranscriptSegment.video_source_id == clip.batch.video_source_id,
+            TranscriptSegment.start_time_sec >= clip.start_time_sec,
+            TranscriptSegment.end_time_sec <= clip.end_time_sec,
+        )
+        .order_by(TranscriptSegment.start_time_sec)
+        .all()
+    )
+    transcript_text = " ".join([t.text for t in transcript])
+    
+    # Get video type from existing context
+    video_type = "unknown"
+    if clip.llm_context and clip.llm_context.response_json:
+        video_type = clip.llm_context.response_json.get("detected_video_type", "unknown")
+    
+    # Generate new hashtags
+    new_hashtags = _generate_hashtags_with_llm(
+        transcript_text, clip.title or "", video_type
+    )
+    
+    # Update LLM context
+    if clip.llm_context:
+        response_json = clip.llm_context.response_json or {}
+        response_json["hashtags"] = new_hashtags
+        clip.llm_context.response_json = response_json
+        db.commit()
+    
+    return {"hashtags": new_hashtags, "message": "Hashtags regenerated successfully"}
