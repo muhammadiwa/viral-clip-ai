@@ -4,6 +4,7 @@ from app.schemas.job import ProcessingJobOut
 from app.schemas.video import (
     VideoSourceOut,
     VideoCreateResponse,
+    VideoInstantResponse,
     TranscriptSegmentOut,
     SceneSegmentOut,
 )
@@ -39,6 +40,7 @@ __all__ = [
     "ProcessingJobOut",
     "VideoSourceOut",
     "VideoCreateResponse",
+    "VideoInstantResponse",
     "TranscriptSegmentOut",
     "SceneSegmentOut",
     "ClipBatchCreate",

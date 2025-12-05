@@ -9,10 +9,12 @@ from app.models import VideoSource, User, TranscriptSegment, SceneSegment, Proce
 from app.schemas import (
     VideoSourceOut,
     VideoCreateResponse,
+    VideoInstantResponse,
     TranscriptSegmentOut,
     SceneSegmentOut,
 )
 from app.services import video_ingest
+from app.services.youtube_metadata import YouTubeMetadataError
 
 router = APIRouter(prefix="/viral-clip", tags=["viral-clip"])
 
@@ -38,6 +40,37 @@ async def create_video_from_youtube(
         subtitle=subtitle,
     )
     return {"video": video, "job": job}
+
+
+@router.post("/video/youtube/instant", response_model=VideoInstantResponse)
+async def create_video_from_youtube_instant(
+    youtube_url: str = Form(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Create a video record from YouTube URL by fetching metadata only (instant).
+    
+    This endpoint does NOT download the video file. It only:
+    1. Extracts video ID from URL
+    2. Fetches metadata via oEmbed API
+    3. Creates VideoSource record with is_downloaded=False
+    4. Generates a unique slug from the video title
+    
+    The video can be previewed using YouTube embed player.
+    Download will be triggered when user requests clip generation.
+    
+    Requirements: 1.1, 1.2, 4.1, 6.1
+    """
+    try:
+        video = await video_ingest.create_video_from_youtube_url(
+            db=db,
+            user=current_user,
+            youtube_url=youtube_url,
+        )
+        return {"video": video}
+    except YouTubeMetadataError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.post("/video/upload", response_model=VideoCreateResponse)
@@ -77,12 +110,34 @@ def list_videos(
     return videos
 
 
+@router.get("/videos/by-slug/{slug}", response_model=VideoSourceOut)
+def get_video_by_slug(
+    slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Get video by slug (SEO-friendly URL identifier).
+    
+    Requirements: 6.4, 6.5
+    """
+    video = (
+        db.query(VideoSource)
+        .filter(VideoSource.slug == slug, VideoSource.user_id == current_user.id)
+        .first()
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    return video
+
+
 @router.get("/videos/{video_id}", response_model=VideoSourceOut)
 def get_video(
     video_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    """Get video by ID (legacy endpoint, prefer /videos/by-slug/{slug})."""
     video = (
         db.query(VideoSource)
         .filter(VideoSource.id == video_id, VideoSource.user_id == current_user.id)
@@ -131,6 +186,55 @@ def get_scenes(
         .all()
     )
     return segments
+
+
+@router.post("/videos/{video_id}/trigger-download", response_model=VideoSourceOut)
+async def trigger_video_download(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Trigger download for a YouTube video that was created with instant preview.
+    
+    If the video is already downloaded, returns immediately.
+    
+    Requirements: 4.2, 4.3
+    """
+    video = (
+        db.query(VideoSource)
+        .filter(VideoSource.id == video_id, VideoSource.user_id == current_user.id)
+        .first()
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # If already downloaded, return immediately (idempotent)
+    if video.is_downloaded:
+        return video
+    
+    # Only YouTube videos can be downloaded
+    if video.source_type != "youtube":
+        raise HTTPException(
+            status_code=400,
+            detail="Only YouTube videos can be downloaded"
+        )
+    
+    # Update status to downloading
+    video.status = "downloading"
+    db.commit()
+    
+    try:
+        video = await video_ingest.trigger_video_download(db, video)
+        return video
+    except Exception as e:
+        video.status = "failed"
+        video.error_message = f"Download failed: {str(e)}"
+        db.commit()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to download video: {str(e)}"
+        )
 
 
 @router.get("/videos/{video_id}/download")

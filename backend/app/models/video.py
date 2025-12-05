@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, JSON
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, JSON, Boolean
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -18,6 +18,13 @@ class VideoSource(Base, TimestampMixin):
     duration_seconds = Column(Float)
     status = Column(String, default="pending")  # pending|processing|analyzed|ready|failed
     error_message = Column(Text)
+    
+    # Instant YouTube Preview fields
+    youtube_video_id = Column(String(50), nullable=True)  # Extracted YouTube video ID
+    youtube_thumbnail_url = Column(String(500), nullable=True)  # Direct YouTube thumbnail URL
+    is_downloaded = Column(Boolean, default=False, nullable=False)  # Whether video file is downloaded
+    download_progress = Column(Float, default=0.0, nullable=False)  # Download progress (0-100)
+    slug = Column(String(150), unique=True, nullable=False, index=True)  # URL-friendly identifier
 
     user = relationship("User", back_populates="videos")
     jobs = relationship("ProcessingJob", back_populates="video")

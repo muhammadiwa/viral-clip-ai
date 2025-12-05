@@ -36,7 +36,7 @@ const App: React.FC = () => {
               }
             />
             <Route
-              path="/ai-viral-clip/video/:videoId"
+              path="/ai-viral-clip/video/:slug"
               element={
                 <AppShell>
                   <VideoDetailPage />

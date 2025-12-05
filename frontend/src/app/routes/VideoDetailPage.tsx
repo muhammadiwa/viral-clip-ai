@@ -7,9 +7,19 @@ import { VideoSource, Clip, SubtitleStyle } from "../../types/api";
 import ClipsSection from "../../components/viral-clip/ClipsSection";
 import ClipDetailModal from "../../components/viral-clip/ClipDetailModal";
 import SubtitleStylePreview from "../../components/viral-clip/SubtitleStylePreview";
+import YouTubePlayer from "../../components/viral-clip/YouTubePlayer";
 
+/**
+ * Video Detail Page - displays video information and clips.
+ * 
+ * Requirements: 2.1, 2.2, 2.3, 5.2, 6.4
+ * - Uses slug in URL path instead of video ID
+ * - Displays YouTube embed player for YouTube videos
+ * - Displays local video player for uploaded videos
+ * - Shows download status when generating clips
+ */
 const VideoDetailPage: React.FC = () => {
-    const { videoId } = useParams<{ videoId: string }>();
+    const { slug } = useParams<{ slug: string }>();
     const navigate = useNavigate();
     const qc = useQueryClient();
 
@@ -25,27 +35,35 @@ const VideoDetailPage: React.FC = () => {
     const [timeframe, setTimeframe] = useState<[number, number]>([0, 90]);
     const [selectedStyleId, setSelectedStyleId] = useState<number | null>(null);
 
-    // Fetch video data
+    // Fetch video data by slug or ID (fallback for legacy videos without slug)
     const { data: video, isLoading: videoLoading } = useQuery<VideoSource>({
-        queryKey: ["video", videoId],
+        queryKey: ["video", slug],
         queryFn: async () => {
-            const res = await api.get(`/viral-clip/videos/${videoId}`);
+            // Check if this is an ID-based fallback (format: "id-{number}")
+            if (slug?.startsWith("id-")) {
+                const videoId = slug.replace("id-", "");
+                const res = await api.get(`/viral-clip/videos/${videoId}`);
+                return res.data;
+            }
+            // Normal slug-based lookup
+            const res = await api.get(`/viral-clip/videos/by-slug/${slug}`);
             return res.data;
         },
-        enabled: Boolean(videoId),
+        enabled: Boolean(slug),
         refetchInterval: 5000,
     });
 
-    // Fetch total clips count for stats
+    // Fetch total clips count for stats (using video ID once we have it)
     const { data: allClips } = useQuery<Clip[]>({
-        queryKey: ["video-clips", videoId],
+        queryKey: ["video-clips", video?.id],
         queryFn: async () => {
-            const res = await api.get(`/viral-clip/videos/${videoId}/clips`);
+            const res = await api.get(`/viral-clip/videos/${video?.id}/clips`);
             return res.data;
         },
-        enabled: Boolean(videoId),
+        enabled: Boolean(video?.id),
         refetchInterval: 5000,
     });
+
 
     // Fetch subtitle styles
     const { data: styles } = useQuery<SubtitleStyle[]>({
@@ -59,7 +77,7 @@ const VideoDetailPage: React.FC = () => {
     // Generate clips mutation
     const generateMutation = useMutation({
         mutationFn: async () => {
-            const res = await api.post(`/viral-clip/videos/${videoId}/clip-batches`, {
+            const res = await api.post(`/viral-clip/videos/${video?.id}/clip-batches`, {
                 aspect_ratio: aspectRatio,
                 clip_length_preset: clipLengthPreset,
                 subtitle_enabled: subtitleEnabled,
@@ -71,7 +89,8 @@ const VideoDetailPage: React.FC = () => {
             return res.data;
         },
         onSuccess: async () => {
-            await qc.invalidateQueries({ queryKey: ["video-clips", videoId] });
+            await qc.invalidateQueries({ queryKey: ["video-clips", video?.id] });
+            await qc.invalidateQueries({ queryKey: ["video", slug] });
             setActiveTab("clips");
         },
     });
@@ -87,12 +106,51 @@ const VideoDetailPage: React.FC = () => {
     const maxTime = Math.max(60, Math.ceil(video?.duration_seconds ?? 180));
     const isVideoReady = video?.status === "ready" || video?.status === "analyzed";
     const isProcessing = video?.status === "processing" || video?.status === "pending";
+    const isDownloading = video?.status === "downloading";
+    const isYouTubeVideo = video?.source_type === "youtube";
+    const needsDownload = isYouTubeVideo && !video?.is_downloaded;
 
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
         const secs = Math.floor(seconds % 60);
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
+
+    // Get status display info
+    const getStatusInfo = () => {
+        if (isDownloading) {
+            return {
+                label: "Downloading",
+                progress: video?.download_progress ?? 0,
+                color: "blue",
+                showProgress: true,
+            };
+        }
+        if (isProcessing) {
+            return {
+                label: "Processing",
+                color: "blue",
+                showProgress: false,
+            };
+        }
+        if (video?.status === "failed") {
+            return {
+                label: "Failed",
+                color: "rose",
+                showProgress: false,
+            };
+        }
+        if (needsDownload) {
+            return {
+                label: "Ready to Generate",
+                color: "emerald",
+                showProgress: false,
+            };
+        }
+        return null;
+    };
+
+    const statusInfo = getStatusInfo();
 
     if (videoLoading) {
         return (
@@ -121,6 +179,7 @@ const VideoDetailPage: React.FC = () => {
         );
     }
 
+
     return (
         <div className="max-w-6xl mx-auto">
             {/* Back Button */}
@@ -137,9 +196,16 @@ const VideoDetailPage: React.FC = () => {
             {/* Video Header */}
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden mb-6">
                 <div className="flex">
-                    {/* Video Thumbnail / Preview */}
+                    {/* Video Player / Thumbnail */}
                     <div className="w-80 h-48 bg-slate-900 flex-shrink-0 relative">
-                        {video.thumbnail_path ? (
+                        {/* YouTube Video: Show embedded player (Requirements 2.1, 2.2) */}
+                        {isYouTubeVideo && video.youtube_video_id ? (
+                            <YouTubePlayer
+                                videoId={video.youtube_video_id}
+                                className="w-full h-full"
+                            />
+                        ) : video.thumbnail_path ? (
+                            /* Local Video: Show thumbnail (Requirement 2.3) */
                             <img
                                 src={video.thumbnail_path}
                                 alt={video.title || "Video thumbnail"}
@@ -152,22 +218,14 @@ const VideoDetailPage: React.FC = () => {
                                 </svg>
                             </div>
                         )}
-                        {/* Processing Overlay */}
-                        {isProcessing && (
+                        {/* Processing/Downloading Overlay */}
+                        {(isProcessing || isDownloading) && (
                             <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                                 <div className="text-center text-white">
                                     <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-2"></div>
-                                    <p className="text-sm">Processing video...</p>
-                                </div>
-                            </div>
-                        )}
-                        {/* Play Button Overlay */}
-                        {!isProcessing && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 opacity-0 hover:opacity-100 transition-opacity cursor-pointer">
-                                <div className="w-14 h-14 rounded-full bg-white/90 flex items-center justify-center">
-                                    <svg className="w-6 h-6 text-slate-800 ml-1" fill="currentColor" viewBox="0 0 24 24">
-                                        <path d="M8 5v14l11-7z" />
-                                    </svg>
+                                    <p className="text-sm">
+                                        {isDownloading ? `Downloading... ${Math.round(video.download_progress ?? 0)}%` : "Processing video..."}
+                                    </p>
                                 </div>
                             </div>
                         )}
@@ -202,19 +260,21 @@ const VideoDetailPage: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Status - only show if processing or failed */}
-                            {(video.status === "processing" || video.status === "pending") && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-                                    <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                    Processing
-                                </div>
-                            )}
-                            {video.status === "failed" && (
-                                <div className="px-3 py-1.5 rounded-full bg-rose-100 text-rose-700 text-xs font-semibold">
-                                    Failed
+                            {/* Status Badge (Requirements 5.1, 5.2) */}
+                            {statusInfo && (
+                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${statusInfo.color === "blue" ? "bg-blue-100 text-blue-700" :
+                                    statusInfo.color === "rose" ? "bg-rose-100 text-rose-700" :
+                                        statusInfo.color === "emerald" ? "bg-emerald-100 text-emerald-700" :
+                                            "bg-slate-100 text-slate-700"
+                                    }`}>
+                                    {(isProcessing || isDownloading) && (
+                                        <svg className="animate-spin h-3 w-3" fill="none" viewBox="0 0 24 24">
+                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                        </svg>
+                                    )}
+                                    {statusInfo.label}
+                                    {statusInfo.showProgress && ` ${Math.round(statusInfo.progress)}%`}
                                 </div>
                             )}
                         </div>
@@ -229,6 +289,7 @@ const VideoDetailPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
 
             {/* Tabs */}
             <div className="flex items-center gap-1 mb-6 bg-slate-100 dark:bg-slate-800 rounded-full p-1 w-fit">
@@ -253,9 +314,9 @@ const VideoDetailPage: React.FC = () => {
             </div>
 
             {/* Tab Content */}
-            {activeTab === "clips" && videoId && (
+            {activeTab === "clips" && video?.id && (
                 <ClipsSection
-                    videoId={videoId}
+                    videoId={String(video.id)}
                     selectedClipId={selectedClip?.id}
                     onSelectClip={(clip: Clip) => setSelectedClip(clip)}
                     onGenerateClick={() => setActiveTab("settings")}
@@ -279,14 +340,41 @@ const VideoDetailPage: React.FC = () => {
                         </div>
                     )}
 
-                    <h2 className="text-lg font-semibold text-slate-900 mb-6">Generate New Clips</h2>
+                    {/* Downloading Warning (Requirement 5.2) */}
+                    {isDownloading && (
+                        <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3">
+                            <svg className="animate-spin h-5 w-5 text-blue-600 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <div>
+                                <div className="text-sm font-medium text-blue-800">Downloading video...</div>
+                                <div className="text-xs text-blue-600">Progress: {Math.round(video?.download_progress ?? 0)}%</div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Ready to Generate Info (for YouTube videos not yet downloaded) */}
+                    {needsDownload && !isDownloading && (
+                        <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
+                            <svg className="h-5 w-5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <div>
+                                <div className="text-sm font-medium text-emerald-800">Ready to generate clips</div>
+                                <div className="text-xs text-emerald-600">Video will be downloaded automatically when you click Generate</div>
+                            </div>
+                        </div>
+                    )}
+
+                    <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-6">Generate New Clips</h2>
 
                     {/* Settings Grid - Video Type removed (AI auto-detects) */}
                     <div className="grid grid-cols-3 gap-4 text-sm">
                         <div>
-                            <label className="block mb-2 text-slate-600 font-medium">Aspect Ratio</label>
+                            <label className="block mb-2 text-slate-600 dark:text-slate-400 font-medium">Aspect Ratio</label>
                             <select
-                                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none text-slate-900 dark:text-white"
                                 value={aspectRatio}
                                 onChange={(e) => setAspectRatio(e.target.value)}
                             >
@@ -296,9 +384,9 @@ const VideoDetailPage: React.FC = () => {
                             </select>
                         </div>
                         <div>
-                            <label className="block mb-2 text-slate-600 font-medium">Clip Length</label>
+                            <label className="block mb-2 text-slate-600 dark:text-slate-400 font-medium">Clip Length</label>
                             <select
-                                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none text-slate-900 dark:text-white"
                                 value={clipLengthPreset}
                                 onChange={(e) => setClipLengthPreset(e.target.value)}
                             >
@@ -309,9 +397,9 @@ const VideoDetailPage: React.FC = () => {
                             </select>
                         </div>
                         <div>
-                            <label className="block mb-2 text-slate-600 font-medium">Subtitles</label>
+                            <label className="block mb-2 text-slate-600 dark:text-slate-400 font-medium">Subtitles</label>
                             <select
-                                className="w-full rounded-xl border border-slate-200 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                                className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-3 py-2.5 focus:border-primary focus:ring-1 focus:ring-primary outline-none text-slate-900 dark:text-white"
                                 value={subtitleEnabled ? "yes" : "no"}
                                 onChange={(e) => setSubtitleEnabled(e.target.value === "yes")}
                             >
@@ -321,11 +409,12 @@ const VideoDetailPage: React.FC = () => {
                         </div>
                     </div>
 
+
                     {/* Include Moments */}
                     <div className="mt-6">
-                        <label className="block mb-2 text-sm text-slate-600 font-medium">Include Specific Moments</label>
+                        <label className="block mb-2 text-sm text-slate-600 dark:text-slate-400 font-medium">Include Specific Moments</label>
                         <input
-                            className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                            className="w-full rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 px-4 py-2.5 text-sm focus:border-primary focus:ring-1 focus:ring-primary outline-none text-slate-900 dark:text-white placeholder-slate-400"
                             placeholder="e.g. intro joke at 02:10, product pitch at 10:30"
                             value={includeMoments}
                             onChange={(e) => setIncludeMoments(e.target.value)}
@@ -335,14 +424,14 @@ const VideoDetailPage: React.FC = () => {
                     {/* Timeframe */}
                     <div className="mt-6">
                         <div className="flex items-center justify-between text-sm mb-3">
-                            <span className="text-slate-600 font-medium">Processing Timeframe</span>
-                            <span className="text-slate-500">
+                            <span className="text-slate-600 dark:text-slate-400 font-medium">Processing Timeframe</span>
+                            <span className="text-slate-500 dark:text-slate-400">
                                 {formatDuration(timeframe[0])} – {formatDuration(timeframe[1])}
                             </span>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="block text-xs text-slate-500 mb-1">Start</label>
+                                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">Start</label>
                                 <input
                                     type="range"
                                     min={0}
@@ -353,7 +442,7 @@ const VideoDetailPage: React.FC = () => {
                                 />
                             </div>
                             <div>
-                                <label className="block text-xs text-slate-500 mb-1">End</label>
+                                <label className="block text-xs text-slate-500 dark:text-slate-400 mb-1">End</label>
                                 <input
                                     type="range"
                                     min={timeframe[0]}
@@ -369,10 +458,9 @@ const VideoDetailPage: React.FC = () => {
                     {/* Subtitle Styles */}
                     {subtitleEnabled && styles && styles.length > 0 && (
                         <div className="mt-6">
-                            <div className="text-sm font-medium text-slate-600 mb-3">Subtitle Style</div>
+                            <div className="text-sm font-medium text-slate-600 dark:text-slate-400 mb-3">Subtitle Style</div>
                             <div className="grid grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
                                 {styles.map((style) => {
-                                    const hasAnimation = style.style_json.animation === "word_highlight";
                                     const isSelected = selectedStyleId === style.id;
 
                                     return (
@@ -381,7 +469,7 @@ const VideoDetailPage: React.FC = () => {
                                             onClick={() => setSelectedStyleId(style.id)}
                                             className={`rounded-xl border overflow-hidden text-left transition-all ${isSelected
                                                 ? "border-primary ring-2 ring-primary/30"
-                                                : "border-slate-200 hover:border-slate-300"
+                                                : "border-slate-200 dark:border-slate-600 hover:border-slate-300 dark:hover:border-slate-500"
                                                 }`}
                                         >
                                             {/* Live Preview */}
@@ -391,9 +479,9 @@ const VideoDetailPage: React.FC = () => {
                                             />
 
                                             {/* Style Info */}
-                                            <div className="p-3 bg-white">
-                                                <div className="font-semibold text-sm text-slate-800 truncate">{style.name}</div>
-                                                <div className="text-[11px] text-slate-500 mt-0.5">
+                                            <div className="p-3 bg-white dark:bg-slate-700">
+                                                <div className="font-semibold text-sm text-slate-800 dark:text-white truncate">{style.name}</div>
+                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                                                     {String(style.style_json.fontFamily || "Sans")}
                                                 </div>
                                             </div>
@@ -406,19 +494,19 @@ const VideoDetailPage: React.FC = () => {
 
                     {/* Generate Button */}
                     <div className="mt-8 flex items-center justify-between">
-                        <div className="text-sm text-slate-500">
+                        <div className="text-sm text-slate-500 dark:text-slate-400">
                             {styles?.find((s) => s.id === selectedStyleId)?.name || "Default style"} •
                             Subtitle {subtitleEnabled ? "enabled" : "disabled"}
                         </div>
                         <motion.button
                             onClick={() => generateMutation.mutate()}
-                            disabled={generateMutation.isPending || !isVideoReady}
-                            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold shadow-md transition-all ${isVideoReady
+                            disabled={generateMutation.isPending || isProcessing || isDownloading}
+                            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold shadow-md transition-all ${!isProcessing && !isDownloading && !generateMutation.isPending
                                 ? "bg-primary text-white hover:bg-primary/90"
-                                : "bg-slate-300 text-slate-500 cursor-not-allowed"
+                                : "bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed"
                                 }`}
-                            whileHover={isVideoReady && !generateMutation.isPending ? { scale: 1.02 } : {}}
-                            whileTap={isVideoReady && !generateMutation.isPending ? { scale: 0.98 } : {}}
+                            whileHover={!isProcessing && !isDownloading && !generateMutation.isPending ? { scale: 1.02 } : {}}
+                            whileTap={!isProcessing && !isDownloading && !generateMutation.isPending ? { scale: 0.98 } : {}}
                         >
                             {generateMutation.isPending ? (
                                 <>
@@ -426,9 +514,11 @@ const VideoDetailPage: React.FC = () => {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    Generating...
+                                    {needsDownload ? "Downloading & Generating..." : "Generating..."}
                                 </>
-                            ) : !isVideoReady ? (
+                            ) : isDownloading ? (
+                                "Downloading..."
+                            ) : isProcessing ? (
                                 "Waiting for video..."
                             ) : (
                                 <>
@@ -441,8 +531,7 @@ const VideoDetailPage: React.FC = () => {
                         </motion.button>
                     </div>
                 </div>
-            )
-            }
+            )}
 
             {/* Clip Detail Modal */}
             <ClipDetailModal
@@ -450,7 +539,7 @@ const VideoDetailPage: React.FC = () => {
                 open={Boolean(selectedClip)}
                 onClose={() => setSelectedClip(undefined)}
             />
-        </div >
+        </div>
     );
 };
 

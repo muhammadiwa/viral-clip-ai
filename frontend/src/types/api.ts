@@ -17,6 +17,12 @@ export type VideoSource = {
   duration_seconds?: number | null;
   status: string;
   error_message?: string | null;
+  // Instant YouTube Preview fields
+  youtube_video_id?: string | null;
+  youtube_thumbnail_url?: string | null;
+  is_downloaded: boolean;
+  download_progress: number;
+  slug: string;
 };
 
 export type ClipBatch = {
