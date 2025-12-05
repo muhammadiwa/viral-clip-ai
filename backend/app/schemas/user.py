@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 
 from pydantic import BaseModel, EmailStr, ConfigDict, constr
 
@@ -13,6 +14,8 @@ class UserCreate(UserBase):
 
 class UserOut(UserBase):
     id: int
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
     credits: int
     created_at: datetime
 

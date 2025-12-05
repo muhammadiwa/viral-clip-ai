@@ -3,8 +3,8 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { api } from "../../lib/apiClient";
-import { VideoSource, ClipBatch, Clip, SubtitleStyle } from "../../types/api";
-import ClipsGrid from "../../components/viral-clip/ClipsGrid";
+import { VideoSource, Clip, SubtitleStyle } from "../../types/api";
+import ClipsSection from "../../components/viral-clip/ClipsSection";
 import ClipDetailModal from "../../components/viral-clip/ClipDetailModal";
 import SubtitleStylePreview from "../../components/viral-clip/SubtitleStylePreview";
 
@@ -14,7 +14,6 @@ const VideoDetailPage: React.FC = () => {
     const qc = useQueryClient();
 
     // State
-    const [selectedBatchId, setSelectedBatchId] = useState<number | undefined>();
     const [selectedClip, setSelectedClip] = useState<Clip | undefined>();
     const [activeTab, setActiveTab] = useState<"clips" | "settings">("clips");
 
@@ -37,15 +36,15 @@ const VideoDetailPage: React.FC = () => {
         refetchInterval: 5000,
     });
 
-    // Fetch clip batches
-    const { data: batches } = useQuery<ClipBatch[]>({
-        queryKey: ["clip-batches", videoId],
+    // Fetch total clips count for stats
+    const { data: allClips } = useQuery<Clip[]>({
+        queryKey: ["video-clips", videoId],
         queryFn: async () => {
-            const res = await api.get(`/viral-clip/videos/${videoId}/clip-batches`);
+            const res = await api.get(`/viral-clip/videos/${videoId}/clips`);
             return res.data;
         },
         enabled: Boolean(videoId),
-        refetchInterval: 4000,
+        refetchInterval: 5000,
     });
 
     // Fetch subtitle styles
@@ -71,21 +70,11 @@ const VideoDetailPage: React.FC = () => {
             });
             return res.data;
         },
-        onSuccess: async (data) => {
-            if (data?.batch?.id) {
-                setSelectedBatchId(data.batch.id);
-            }
-            await qc.invalidateQueries({ queryKey: ["clip-batches", videoId] });
+        onSuccess: async () => {
+            await qc.invalidateQueries({ queryKey: ["video-clips", videoId] });
             setActiveTab("clips");
         },
     });
-
-    // Set default batch when loaded
-    useEffect(() => {
-        if (batches && batches.length > 0 && !selectedBatchId) {
-            setSelectedBatchId(batches[0].id);
-        }
-    }, [batches, selectedBatchId]);
 
     // Update timeframe when video loads
     useEffect(() => {
@@ -136,8 +125,8 @@ const VideoDetailPage: React.FC = () => {
         <div className="max-w-6xl mx-auto">
             {/* Back Button */}
             <button
-                onClick={() => navigate("/")}
-                className="flex items-center gap-2 text-sm text-slate-600 hover:text-slate-900 mb-6 transition-colors"
+                onClick={() => navigate("/ai-viral-clip")}
+                className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white mb-6 transition-colors"
             >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -146,7 +135,7 @@ const VideoDetailPage: React.FC = () => {
             </button>
 
             {/* Video Header */}
-            <div className="bg-white rounded-3xl shadow-sm border border-slate-100 overflow-hidden mb-6">
+            <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden mb-6">
                 <div className="flex">
                     {/* Video Thumbnail / Preview */}
                     <div className="w-80 h-48 bg-slate-900 flex-shrink-0 relative">
@@ -188,10 +177,10 @@ const VideoDetailPage: React.FC = () => {
                     <div className="flex-1 p-6">
                         <div className="flex items-start justify-between">
                             <div>
-                                <h1 className="text-xl font-semibold text-slate-900 mb-2">
+                                <h1 className="text-xl font-semibold text-slate-900 dark:text-white mb-2">
                                     {video.title || "Untitled video"}
                                 </h1>
-                                <div className="flex items-center gap-4 text-sm text-slate-500">
+                                <div className="flex items-center gap-4 text-sm text-slate-500 dark:text-slate-400">
                                     <span className="flex items-center gap-1">
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -233,8 +222,8 @@ const VideoDetailPage: React.FC = () => {
                         {/* Quick Stats */}
                         <div className="mt-4 flex items-center gap-6">
                             <div className="text-center">
-                                <div className="text-2xl font-bold text-slate-900">{batches?.length || 0}</div>
-                                <div className="text-xs text-slate-500">Batches</div>
+                                <div className="text-2xl font-bold text-slate-900 dark:text-white">{allClips?.length || 0}</div>
+                                <div className="text-xs text-slate-500 dark:text-slate-400">Total Clips</div>
                             </div>
                         </div>
                     </div>
@@ -242,12 +231,12 @@ const VideoDetailPage: React.FC = () => {
             </div>
 
             {/* Tabs */}
-            <div className="flex items-center gap-1 mb-6 bg-slate-100 rounded-full p-1 w-fit">
+            <div className="flex items-center gap-1 mb-6 bg-slate-100 dark:bg-slate-800 rounded-full p-1 w-fit">
                 <button
                     onClick={() => setActiveTab("clips")}
                     className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === "clips"
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                 >
                     Clips
@@ -255,8 +244,8 @@ const VideoDetailPage: React.FC = () => {
                 <button
                     onClick={() => setActiveTab("settings")}
                     className={`px-5 py-2 rounded-full text-sm font-medium transition-colors ${activeTab === "settings"
-                        ? "bg-white text-slate-900 shadow-sm"
-                        : "text-slate-600 hover:text-slate-900"
+                        ? "bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm"
+                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
                         }`}
                 >
                     Generate New
@@ -264,77 +253,18 @@ const VideoDetailPage: React.FC = () => {
             </div>
 
             {/* Tab Content */}
-            {activeTab === "clips" && (
-                <div>
-                    {/* Batch Selector */}
-                    {batches && batches.length > 0 && (
-                        <div className="mb-6">
-                            <div className="text-sm font-semibold mb-3 text-slate-700">Select Batch</div>
-                            <div className="flex gap-2 flex-wrap">
-                                {batches.map((batch) => (
-                                    <button
-                                        key={batch.id}
-                                        onClick={() => {
-                                            setSelectedBatchId(batch.id);
-                                            setSelectedClip(undefined);
-                                        }}
-                                        className={`px-4 py-2 rounded-xl text-sm border transition-all ${selectedBatchId === batch.id
-                                            ? "border-primary bg-primary/5 text-primary font-medium"
-                                            : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
-                                            }`}
-                                    >
-                                        {batch.name}
-                                        {batch.status === "processing" && (
-                                            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-blue-100 text-blue-700">
-                                                <svg className="animate-spin h-2.5 w-2.5" fill="none" viewBox="0 0 24 24">
-                                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-                                                </svg>
-                                                Processing
-                                            </span>
-                                        )}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Clips Grid */}
-                    {selectedBatchId ? (
-                        <ClipsGrid
-                            batchId={selectedBatchId}
-                            selectedClipId={selectedClip?.id}
-                            batchStatus={batches?.find((b) => b.id === selectedBatchId)?.status}
-                            onSelect={(clip: Clip) => setSelectedClip(clip)}
-                        />
-                    ) : (
-                        <div className="bg-white rounded-3xl border border-slate-100 p-12 text-center">
-                            <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-4">
-                                <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-                                </svg>
-                            </div>
-                            <h3 className="text-lg font-semibold text-slate-900 mb-2">No clips yet</h3>
-                            <p className="text-sm text-slate-500 mb-4">
-                                Generate your first batch of viral clips from this video
-                            </p>
-                            <button
-                                onClick={() => setActiveTab("settings")}
-                                disabled={!isVideoReady}
-                                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-primary text-white text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                                </svg>
-                                Generate Clips
-                            </button>
-                        </div>
-                    )}
-                </div>
+            {activeTab === "clips" && videoId && (
+                <ClipsSection
+                    videoId={videoId}
+                    selectedClipId={selectedClip?.id}
+                    onSelectClip={(clip: Clip) => setSelectedClip(clip)}
+                    onGenerateClick={() => setActiveTab("settings")}
+                    isVideoReady={isVideoReady}
+                />
             )}
 
             {activeTab === "settings" && (
-                <div className="bg-white rounded-3xl shadow-sm border border-slate-100 p-6">
+                <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 p-6">
                     {/* Processing Warning */}
                     {isProcessing && (
                         <div className="mb-6 p-4 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-3">
@@ -511,7 +441,8 @@ const VideoDetailPage: React.FC = () => {
                         </motion.button>
                     </div>
                 </div>
-            )}
+            )
+            }
 
             {/* Clip Detail Modal */}
             <ClipDetailModal
@@ -519,7 +450,7 @@ const VideoDetailPage: React.FC = () => {
                 open={Boolean(selectedClip)}
                 onClose={() => setSelectedClip(undefined)}
             />
-        </div>
+        </div >
     );
 };
 

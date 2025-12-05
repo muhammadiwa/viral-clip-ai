@@ -4,12 +4,87 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  @apply bg-[#fdf7f4] text-slate-900;
-  font-family: "Sora", "Space Grotesk", sans-serif;
+@layer base {
+
+  /* Smooth theme transitions */
+  html {
+    @apply transition-colors duration-250;
+  }
+
+  body {
+    @apply bg-[#fdf7f4] text-slate-900 transition-colors duration-250;
+    font-family: "Sora", "Space Grotesk", sans-serif;
+  }
+
+  /* Dark mode base styles */
+  html.dark body {
+    @apply bg-slate-900 text-slate-100;
+  }
+
+  /* Ensure smooth transitions on all interactive elements */
+  button,
+  a,
+  input,
+  select,
+  textarea {
+    @apply transition-colors duration-200;
+  }
 }
 
-.grain {
-  background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.04) 1px, transparent 0);
-  background-size: 24px 24px;
+@layer components {
+
+  /* Grain texture for light mode */
+  .grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(0, 0, 0, 0.04) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+
+  /* Grain texture for dark mode */
+  html.dark .grain {
+    background-image: radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.03) 1px, transparent 0);
+    background-size: 24px 24px;
+  }
+
+  /* Dropdown animation classes */
+  .dropdown-enter {
+    @apply opacity-0 scale-95;
+  }
+
+  .dropdown-enter-active {
+    @apply opacity-100 scale-100 transition-all duration-150 ease-out;
+  }
+
+  .dropdown-exit {
+    @apply opacity-100 scale-100;
+  }
+
+  .dropdown-exit-active {
+    @apply opacity-0 scale-95 transition-all duration-100 ease-in;
+  }
+
+  /* Mobile drawer animation classes */
+  .drawer-enter {
+    @apply translate-x-full;
+  }
+
+  .drawer-enter-active {
+    @apply translate-x-0 transition-transform duration-300 ease-out;
+  }
+
+  .drawer-exit {
+    @apply translate-x-0;
+  }
+
+  .drawer-exit-active {
+    @apply translate-x-full transition-transform duration-200 ease-in;
+  }
+
+  /* Theme toggle rotation animation */
+  .theme-icon-rotate {
+    @apply transition-transform duration-300 ease-in-out;
+  }
+
+  .theme-icon-rotate.dark {
+    @apply rotate-180;
+  }
 }

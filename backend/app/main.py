@@ -22,6 +22,8 @@ from app.api.routes import (
     jobs,
     audio,
     cache,
+    notifications,
+    user_preferences,
 )
 from app.models import SubtitleStyle
 
@@ -60,6 +62,8 @@ app.include_router(exports.router, prefix="/api")
 app.include_router(jobs.router, prefix="/api")
 app.include_router(audio.router, prefix="/api")
 app.include_router(cache.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
+app.include_router(user_preferences.router, prefix="/api")
 
 
 def seed_defaults():

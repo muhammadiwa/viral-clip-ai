@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.models import ProcessingJob, ClipBatch, ExportJob, SubtitleStyle, SubtitleSegment, VideoAnalysis, TranscriptSegment
 from app.models.analysis import SegmentAnalysis
+from app.models.notification import Notification
 from app.services import transcription, segmentation, subtitles, exporting, utils, virality, sentiment_analysis
 from app.services.progress_tracker import (
     ProgressTracker,
@@ -21,12 +22,105 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 
+def _create_job_notification(
+    db: Session,
+    job: ProcessingJob,
+    status: str,
+    title: str | None = None,
+    message: str | None = None,
+) -> Notification | None:
+    """Create a notification for job completion or failure.
+    
+    Args:
+        db: Database session
+        job: The processing job
+        status: Either "completed" or "failed"
+        title: Optional custom title (auto-generated if not provided)
+        message: Optional custom message (auto-generated if not provided)
+    
+    Returns:
+        The created Notification or None if user_id cannot be determined
+    """
+    # Determine user_id from the job's video
+    user_id = None
+    video_title = "your video"
+    video_id = None
+    
+    if job.video:
+        user_id = job.video.user_id
+        video_title = job.video.title or "your video"
+        video_id = job.video_source_id
+    
+    if not user_id:
+        logger.warning(
+            "notification.no_user_id",
+            job_id=job.id,
+            job_type=job.job_type,
+            msg="Cannot create notification without user_id"
+        )
+        return None
+    
+    # Determine notification type and default messages based on status
+    if status == "completed":
+        notif_type = "success"
+        default_title = f"Processing Complete"
+        if job.job_type == "transcription_and_segmentation":
+            default_message = f"Video '{video_title}' has been analyzed and is ready for clip generation."
+        elif job.job_type == "clip_generation":
+            clips_count = (job.result_summary or {}).get("clips_created", 0)
+            default_message = f"Generated {clips_count} clips from '{video_title}'."
+        elif job.job_type == "export_clip":
+            default_message = f"Export for '{video_title}' is ready for download."
+        else:
+            default_message = f"Processing for '{video_title}' has completed successfully."
+    else:  # failed
+        notif_type = "error"
+        default_title = f"Processing Failed"
+        error_msg = job.error_message or "An unknown error occurred"
+        if job.job_type == "transcription_and_segmentation":
+            default_message = f"Failed to analyze '{video_title}': {error_msg}"
+        elif job.job_type == "clip_generation":
+            default_message = f"Failed to generate clips for '{video_title}': {error_msg}"
+        elif job.job_type == "export_clip":
+            default_message = f"Export failed for '{video_title}': {error_msg}"
+        else:
+            default_message = f"Processing failed for '{video_title}': {error_msg}"
+    
+    # Build link to video detail page
+    link = f"/video/{video_id}" if video_id else None
+    
+    notification = Notification(
+        user_id=user_id,
+        title=title or default_title,
+        message=message or default_message,
+        type=notif_type,
+        link=link,
+        job_id=job.id,
+    )
+    db.add(notification)
+    db.commit()
+    
+    logger.info(
+        "notification.created",
+        notification_id=notification.id,
+        user_id=user_id,
+        job_id=job.id,
+        type=notif_type,
+        title=notification.title,
+    )
+    
+    return notification
+
+
 def _complete_job(db: Session, job: ProcessingJob, summary: dict | None = None):
     job.status = "completed"
     job.progress = 100.0
     if summary:
         job.result_summary = summary
     db.commit()
+    
+    # Create success notification
+    _create_job_notification(db, job, status="completed")
 
 
 def _fail_job(db: Session, job: ProcessingJob, error: str):
@@ -35,6 +129,9 @@ def _fail_job(db: Session, job: ProcessingJob, error: str):
     if job.video:
         job.video.status = "failed"
     db.commit()
+    
+    # Create failure notification
+    _create_job_notification(db, job, status="failed")
 
 
 def _save_segment_analyses(db: Session, segments: list):

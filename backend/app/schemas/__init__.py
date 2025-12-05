@@ -19,6 +19,17 @@ from app.schemas.subtitle import SubtitleSegmentOut, SubtitleStyleCreate, Subtit
 from app.schemas.brand import BrandKitCreate, BrandKitOut
 from app.schemas.export import ExportCreate, ExportOut, ExportWithJob
 from app.schemas.audio import AudioConfigUpdate, AudioConfigOut
+from app.schemas.notification import (
+    NotificationBase,
+    NotificationCreate,
+    NotificationOut,
+    NotificationsListResponse,
+)
+from app.schemas.user_preference import (
+    UserPreferenceBase,
+    UserPreferenceOut,
+    UserPreferenceUpdate,
+)
 
 __all__ = [
     "UserBase",
@@ -47,4 +58,11 @@ __all__ = [
     "ExportWithJob",
     "AudioConfigUpdate",
     "AudioConfigOut",
+    "NotificationBase",
+    "NotificationCreate",
+    "NotificationOut",
+    "NotificationsListResponse",
+    "UserPreferenceBase",
+    "UserPreferenceOut",
+    "UserPreferenceUpdate",
 ]

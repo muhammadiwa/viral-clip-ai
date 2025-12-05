@@ -52,7 +52,7 @@ const VideoHistoryGrid: React.FC<Props> = ({ selectedId, onSelect }) => {
           const handleClick = () => {
             if (canSelect) {
               // Navigate to video detail page
-              navigate(`/video/${v.id}`);
+              navigate(`/ai-viral-clip/video/${v.id}`);
               // Also call onSelect if provided (for backward compatibility)
               onSelect?.(v);
             }

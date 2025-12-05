@@ -11,6 +11,7 @@ dist/
 .vscode/
 .idea/
 .DS_Store
+.kiro/
 
 backend/alembic/versions/*.py
 media/
@@ -18,3 +19,7 @@ frontend/node_modules/
 backend/.env
 backend/venv/
 backend/.pytest_cache/
+
+# Hypothesis (property-based testing cache)
+.hypothesis/
+backend/.hypothesis/

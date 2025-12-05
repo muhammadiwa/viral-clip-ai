@@ -44,6 +44,8 @@ export type Clip = {
   status: string;
   thumbnail_path?: string | null;
   video_path?: string | null;
+  aspect_ratio?: string | null;
+  created_at?: string | null;
 };
 
 export type ClipDetail = Clip & {

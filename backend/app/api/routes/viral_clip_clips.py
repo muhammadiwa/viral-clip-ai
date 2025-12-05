@@ -14,6 +14,45 @@ settings = get_settings()
 router = APIRouter(prefix="/viral-clip", tags=["clips"])
 
 
+@router.get("/videos/{video_id}/clips")
+def list_video_clips(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all clips for a video (from all batches), sorted by created_at descending."""
+    from app.models import VideoSource
+    
+    video = (
+        db.query(VideoSource)
+        .filter(VideoSource.id == video_id, VideoSource.user_id == current_user.id)
+        .first()
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    clips = (
+        db.query(Clip)
+        .join(ClipBatch)
+        .filter(ClipBatch.video_source_id == video_id)
+        .order_by(Clip.created_at.desc())
+        .all()
+    )
+    
+    # Add aspect_ratio from batch config to each clip
+    result = []
+    for clip in clips:
+        clip_data = ClipOut.model_validate(clip).model_dump()
+        # Get aspect_ratio from batch config
+        if clip.batch and clip.batch.config_json:
+            clip_data["aspect_ratio"] = clip.batch.config_json.get("aspect_ratio", "16:9")
+        else:
+            clip_data["aspect_ratio"] = "16:9"
+        result.append(clip_data)
+    
+    return result
+
+
 @router.get("/clip-batches/{batch_id}/clips", response_model=list[ClipOut])
 def list_clips(
     batch_id: int,
