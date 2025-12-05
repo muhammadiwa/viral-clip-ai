@@ -180,24 +180,55 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
     duration = video.duration_seconds or utils.probe_duration(video.file_path) or 0.0
     tracker.complete_step()
     
-    # Step 2: Extract audio (handled within transcription but we track it)
-    tracker.start_step("extract_audio", "Extracting audio from video")
-    tracker.update(0.5, "Extracting audio track")
-    tracker.complete_step()
+    # Check for existing transcript (Smart Processing - Requirements 3.2, 3.4)
+    existing_transcript_count = db.query(TranscriptSegment).filter(
+        TranscriptSegment.video_source_id == video.id
+    ).count()
+    has_existing_transcript = existing_transcript_count > 0
     
-    # Step 3: Transcribe
-    tracker.start_step("transcribe", "Transcribing audio with AI")
+    if has_existing_transcript:
+        # Skip transcription - transcript already exists (Requirement 3.4, 4.5)
+        logger.info(
+            "worker.transcript_exists_skipping",
+            video_id=video.id,
+            segment_count=existing_transcript_count,
+            msg="Transcript already exists - skipping transcription step"
+        )
+        
+        # Step 2: Skip audio extraction
+        tracker.start_step("extract_audio", "Extracting audio from video")
+        tracker.update(1.0, "Skipped - transcript exists")
+        tracker.complete_step("Skipped - using existing transcript")
+        
+        # Step 3: Skip transcription
+        tracker.start_step("transcribe", "Transcribing audio with AI")
+        tracker.update(1.0, "Skipped - transcript exists")
+        tracker.complete_step(f"Skipped - using existing {existing_transcript_count} segments")
+        
+        # Load existing segments for analysis
+        segments = db.query(TranscriptSegment).filter(
+            TranscriptSegment.video_source_id == video.id
+        ).all()
+        job.result_summary = {"transcript_segments": len(segments), "transcript_skipped": True}
+    else:
+        # Step 2: Extract audio (handled within transcription but we track it)
+        tracker.start_step("extract_audio", "Extracting audio from video")
+        tracker.update(0.5, "Extracting audio track")
+        tracker.complete_step()
+        
+        # Step 3: Transcribe
+        tracker.start_step("transcribe", "Transcribing audio with AI")
+        
+        # Pass progress callback to transcription
+        def transcribe_progress(chunk_num: int, total_chunks: int, message: str = ""):
+            progress = chunk_num / total_chunks if total_chunks > 0 else 0
+            tracker.update(progress, "Transcribing audio", f"chunk {chunk_num}/{total_chunks}")
+        
+        segments = transcription.transcribe_video(db, video, progress_callback=transcribe_progress)
+        job.result_summary = {"transcript_segments": len(segments), "transcript_skipped": False}
+        tracker.complete_step(f"Transcribed {len(segments)} segments")
     
-    # Pass progress callback to transcription
-    def transcribe_progress(chunk_num: int, total_chunks: int, message: str = ""):
-        progress = chunk_num / total_chunks if total_chunks > 0 else 0
-        tracker.update(progress, "Transcribing audio", f"chunk {chunk_num}/{total_chunks}")
-    
-    segments = transcription.transcribe_video(db, video, progress_callback=transcribe_progress)
-    job.result_summary = {"transcript_segments": len(segments)}
-    tracker.complete_step(f"Transcribed {len(segments)} segments")
-    
-    # Step 4-5: Comprehensive Analysis
+    # Step 4-5: Comprehensive Analysis (Smart Processing - Requirements 3.5, 3.6)
     tracker.start_step("audio_analysis", "Analyzing audio patterns")
     
     # Check if analysis already exists
@@ -206,12 +237,24 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
     ).first()
     
     if existing_analysis:
-        logger.info("worker.analysis_exists", video_id=video.id)
-        tracker.update(1.0, "Using existing analysis")
-        tracker.complete_step()
+        # Skip analysis - analysis already exists (Requirement 3.6, 4.5)
+        logger.info(
+            "worker.analysis_exists_skipping",
+            video_id=video.id,
+            analysis_id=existing_analysis.id,
+            analysis_version=existing_analysis.analysis_version,
+            msg="Analysis already exists - skipping analysis step"
+        )
+        tracker.update(1.0, "Skipped - analysis exists")
+        tracker.complete_step("Skipped - using existing analysis")
         tracker.start_step("visual_analysis", "Analyzing visual content")
-        tracker.update(1.0, "Using existing analysis")
-        tracker.complete_step()
+        tracker.update(1.0, "Skipped - analysis exists")
+        tracker.complete_step("Skipped - using existing analysis")
+        
+        # Update job summary to indicate analysis was skipped
+        summary = job.result_summary or {}
+        summary["analysis_skipped"] = True
+        job.result_summary = summary
     else:
         # Perform comprehensive analysis
         def analysis_progress(progress: float, message: str):
@@ -270,6 +313,11 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
         
         # Save segment analysis for each transcript segment
         _save_segment_analyses(db, segments)
+        
+        # Update job summary to indicate analysis was performed
+        summary = job.result_summary or {}
+        summary["analysis_skipped"] = False
+        job.result_summary = summary
         
         tracker.complete_step("Analysis saved to database")
     

@@ -23,10 +23,115 @@ logger = structlog.get_logger()
 settings = get_settings()
 
 
+class VideoResult:
+    """Result of create_or_get_video_from_youtube operation."""
+    
+    def __init__(self, video: "VideoSource", is_new: bool):
+        self.video = video
+        self.is_new = is_new
+    
+    def __iter__(self):
+        """Allow tuple unpacking: video, is_new = result"""
+        return iter((self.video, self.is_new))
+
+
 def _get_existing_slugs(db: Session) -> List[str]:
     """Get all existing slugs from the database."""
     result = db.query(VideoSource.slug).filter(VideoSource.slug.isnot(None)).all()
     return [row[0] for row in result]
+
+
+async def create_or_get_video_from_youtube(
+    db: Session,
+    user: User,
+    youtube_url: str,
+) -> VideoResult:
+    """
+    Create video from YouTube URL or return existing if duplicate.
+    
+    This function implements the duplicate prevention logic:
+    1. Extracts video ID from URL
+    2. Checks if a video with the same youtube_video_id + user_id exists
+    3. If exists, returns the existing video with is_new=False
+    4. If not exists, fetches metadata and creates new video with is_new=True
+    
+    Args:
+        db: Database session
+        user: User creating/accessing the video
+        youtube_url: YouTube URL in any supported format
+        
+    Returns:
+        VideoResult containing (video, is_new) where:
+        - video: VideoSource record (existing or newly created)
+        - is_new: True if video was created, False if existing was returned
+        
+    Raises:
+        YouTubeMetadataError: If URL is invalid or video is unavailable
+        
+    Requirements: 1.1, 1.2, 1.3, 2.1, 2.2, 2.3
+    """
+    # Extract video ID from URL first
+    video_id = youtube_metadata_service.extract_video_id(youtube_url)
+    
+    if not video_id:
+        raise YouTubeMetadataError(f"Could not extract video ID from URL: {youtube_url}")
+    
+    # Check for existing video with same youtube_video_id + user_id
+    existing_video = db.query(VideoSource).filter(
+        VideoSource.youtube_video_id == video_id,
+        VideoSource.user_id == user.id,
+    ).first()
+    
+    if existing_video:
+        logger.info(
+            "video.duplicate_found",
+            video_id=existing_video.id,
+            youtube_video_id=video_id,
+            user_id=user.id,
+            slug=existing_video.slug,
+        )
+        return VideoResult(video=existing_video, is_new=False)
+    
+    # No existing video found, fetch metadata and create new record
+    video_info = await youtube_metadata_service.get_video_info(youtube_url)
+    
+    # Generate unique slug from title
+    base_slug = slug_service.generate_slug(video_info.title)
+    existing_slugs = _get_existing_slugs(db)
+    unique_slug = slug_service.ensure_unique_slug(base_slug, existing_slugs)
+    
+    # Create video record with metadata only
+    video = VideoSource(
+        user_id=user.id,
+        source_type="youtube",
+        source_url=youtube_url,
+        title=video_info.title,
+        status="pending",
+        youtube_video_id=video_info.video_id,
+        youtube_thumbnail_url=video_info.thumbnail_url,
+        is_downloaded=False,
+        download_progress=0.0,
+        slug=unique_slug,
+    )
+    
+    # Set duration if available
+    if video_info.duration_seconds:
+        video.duration_seconds = video_info.duration_seconds
+    
+    db.add(video)
+    db.commit()
+    db.refresh(video)
+    
+    logger.info(
+        "video.created_from_youtube",
+        video_id=video.id,
+        youtube_video_id=video_info.video_id,
+        title=video_info.title[:50] if video_info.title else "untitled",
+        slug=unique_slug,
+        user_id=user.id,
+    )
+    
+    return VideoResult(video=video, is_new=True)
 
 
 async def create_video_from_youtube_url(

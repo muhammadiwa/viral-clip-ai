@@ -1,9 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { api } from "../../lib/apiClient";
-import { VideoSource, Clip, SubtitleStyle } from "../../types/api";
+import { VideoSource, Clip, SubtitleStyle, ProcessingJob } from "../../types/api";
 import ClipsSection from "../../components/viral-clip/ClipsSection";
 import ClipDetailModal from "../../components/viral-clip/ClipDetailModal";
 import SubtitleStylePreview from "../../components/viral-clip/SubtitleStylePreview";
@@ -26,6 +26,7 @@ const VideoDetailPage: React.FC = () => {
     // State
     const [selectedClip, setSelectedClip] = useState<Clip | undefined>();
     const [activeTab, setActiveTab] = useState<"clips" | "settings">("clips");
+    const [activeJobId, setActiveJobId] = useState<number | null>(null);
 
     // Clip generation settings (video_type removed - AI auto-detects)
     const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -74,6 +75,45 @@ const VideoDetailPage: React.FC = () => {
         },
     });
 
+    // Poll active job for progress (Requirements 4.1, 4.2, 4.3, 4.4, 4.5)
+    const { data: activeJob } = useQuery<ProcessingJob>({
+        queryKey: ["job", activeJobId],
+        queryFn: async () => {
+            const res = await api.get(`/viral-clip/jobs/${activeJobId}`);
+            return res.data;
+        },
+        enabled: Boolean(activeJobId),
+        refetchInterval: (query) => {
+            const job = query.state.data;
+            // Stop polling when job is completed or failed
+            if (job?.status === "completed" || job?.status === "failed") {
+                return false;
+            }
+            return 1000; // Poll every second while running
+        },
+    });
+
+    // Clear active job when completed and switch to clips tab
+    useEffect(() => {
+        if (activeJob?.status === "completed") {
+            // Delay clearing to show final status, then switch to clips tab
+            const timer = setTimeout(() => {
+                setActiveJobId(null);
+                setActiveTab("clips");
+                qc.invalidateQueries({ queryKey: ["video-clips", video?.id] });
+                qc.invalidateQueries({ queryKey: ["video", slug] });
+            }, 2000);
+            return () => clearTimeout(timer);
+        }
+        if (activeJob?.status === "failed") {
+            // Just clear the job ID after showing error
+            const timer = setTimeout(() => {
+                setActiveJobId(null);
+            }, 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [activeJob?.status, qc, video?.id, slug]);
+
     // Generate clips mutation
     const generateMutation = useMutation({
         mutationFn: async () => {
@@ -88,10 +128,12 @@ const VideoDetailPage: React.FC = () => {
             });
             return res.data;
         },
-        onSuccess: async () => {
-            await qc.invalidateQueries({ queryKey: ["video-clips", video?.id] });
-            await qc.invalidateQueries({ queryKey: ["video", slug] });
-            setActiveTab("clips");
+        onSuccess: async (data) => {
+            // Start tracking the job for progress updates (Requirements 4.1-4.5)
+            if (data?.job?.id) {
+                setActiveJobId(data.job.id);
+            }
+            // Don't switch tabs immediately - wait for job to complete
         },
     });
 
@@ -109,6 +151,7 @@ const VideoDetailPage: React.FC = () => {
     const isDownloading = video?.status === "downloading";
     const isYouTubeVideo = video?.source_type === "youtube";
     const needsDownload = isYouTubeVideo && !video?.is_downloaded;
+    const isGenerating = Boolean(activeJobId) && activeJob?.status !== "completed" && activeJob?.status !== "failed";
 
     const formatDuration = (seconds: number) => {
         const mins = Math.floor(seconds / 60);
@@ -116,8 +159,38 @@ const VideoDetailPage: React.FC = () => {
         return `${mins}:${secs.toString().padStart(2, "0")}`;
     };
 
+    // Get human-readable step name (Requirements 4.1-4.5)
+    const getStepDisplayName = (step: string | null | undefined): string => {
+        const stepNames: Record<string, string> = {
+            init: "Initializing",
+            extract_audio: "Extracting Audio",
+            transcribe: "Transcribing",
+            audio_analysis: "Analyzing Audio",
+            visual_analysis: "Analyzing Visual",
+            segmentation: "Creating Segments",
+            analyze: "Analyzing Content",
+            find_peaks: "Finding Viral Moments",
+            llm_select: "AI Selection",
+            score_clips: "Scoring Clips",
+            generate_subtitles: "Generating Subtitles",
+            render_clips: "Rendering Clips",
+            finalize: "Finalizing",
+        };
+        return stepNames[step || ""] || step || "Processing";
+    };
+
+    // Check if a step was skipped based on result summary
+    const isStepSkipped = useCallback((step: string): boolean => {
+        const summary = activeJob?.result_summary;
+        if (!summary) return false;
+        if (step === "transcribe" && summary.transcript_skipped) return true;
+        if (step === "audio_analysis" && summary.analysis_skipped) return true;
+        if (step === "visual_analysis" && summary.analysis_skipped) return true;
+        return false;
+    }, [activeJob?.result_summary]);
+
     // Get status display info
-    const getStatusInfo = () => {
+    const getStatusInfo = (): { label: string; progress: number; color: string; showProgress: boolean } | null => {
         if (isDownloading) {
             return {
                 label: "Downloading",
@@ -129,6 +202,7 @@ const VideoDetailPage: React.FC = () => {
         if (isProcessing) {
             return {
                 label: "Processing",
+                progress: 0,
                 color: "blue",
                 showProgress: false,
             };
@@ -136,6 +210,7 @@ const VideoDetailPage: React.FC = () => {
         if (video?.status === "failed") {
             return {
                 label: "Failed",
+                progress: 0,
                 color: "rose",
                 showProgress: false,
             };
@@ -143,6 +218,7 @@ const VideoDetailPage: React.FC = () => {
         if (needsDownload) {
             return {
                 label: "Ready to Generate",
+                progress: 0,
                 color: "emerald",
                 showProgress: false,
             };
@@ -197,12 +273,12 @@ const VideoDetailPage: React.FC = () => {
             <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden mb-6">
                 <div className="flex">
                     {/* Video Player / Thumbnail */}
-                    <div className="w-80 h-48 bg-slate-900 flex-shrink-0 relative">
+                    <div className="w-80 h-48 bg-slate-900 flex-shrink-0 relative overflow-hidden">
                         {/* YouTube Video: Show embedded player (Requirements 2.1, 2.2) */}
                         {isYouTubeVideo && video.youtube_video_id ? (
                             <YouTubePlayer
                                 videoId={video.youtube_video_id}
-                                className="w-full h-full"
+                                className="absolute inset-0"
                             />
                         ) : video.thumbnail_path ? (
                             /* Local Video: Show thumbnail (Requirement 2.3) */
@@ -492,6 +568,98 @@ const VideoDetailPage: React.FC = () => {
                         </div>
                     )}
 
+                    {/* Generation Progress Panel (Requirements 4.1-4.5, 6.3, 6.4) */}
+                    <AnimatePresence>
+                        {isGenerating && activeJob && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mt-6 p-4 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800"
+                            >
+                                <div className="flex items-center gap-3 mb-3">
+                                    <svg className="animate-spin h-5 w-5 text-blue-600 dark:text-blue-400 flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    <div className="flex-1">
+                                        <div className="text-sm font-medium text-blue-800 dark:text-blue-200">
+                                            {getStepDisplayName(activeJob.current_step)}
+                                            {activeJob.current_step_num && activeJob.total_steps && (
+                                                <span className="ml-2 text-blue-600 dark:text-blue-400">
+                                                    (Step {activeJob.current_step_num}/{activeJob.total_steps})
+                                                </span>
+                                            )}
+                                        </div>
+                                        {activeJob.progress_message && (
+                                            <div className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">
+                                                {activeJob.progress_message}
+                                                {/* Show skipped indicator (Requirement 4.5) */}
+                                                {activeJob.progress_message.toLowerCase().includes("skipped") && (
+                                                    <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">
+                                                        ✓ Skipped
+                                                    </span>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                    <div className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                        {Math.round(activeJob.progress)}%
+                                    </div>
+                                </div>
+                                {/* Progress bar */}
+                                <div className="h-2 bg-blue-200 dark:bg-blue-800 rounded-full overflow-hidden">
+                                    <motion.div
+                                        className="h-full bg-blue-600 dark:bg-blue-400 rounded-full"
+                                        initial={{ width: 0 }}
+                                        animate={{ width: `${activeJob.progress}%` }}
+                                        transition={{ duration: 0.3 }}
+                                    />
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Job Completed Message */}
+                    <AnimatePresence>
+                        {activeJob?.status === "completed" && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mt-6 p-4 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 flex items-center gap-3"
+                            >
+                                <svg className="h-5 w-5 text-emerald-600 dark:text-emerald-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                </svg>
+                                <div>
+                                    <div className="text-sm font-medium text-emerald-800 dark:text-emerald-200">Clips generated successfully!</div>
+                                    <div className="text-xs text-emerald-600 dark:text-emerald-400">Switching to clips view...</div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
+                    {/* Job Failed Message */}
+                    <AnimatePresence>
+                        {activeJob?.status === "failed" && (
+                            <motion.div
+                                initial={{ opacity: 0, height: 0 }}
+                                animate={{ opacity: 1, height: "auto" }}
+                                exit={{ opacity: 0, height: 0 }}
+                                className="mt-6 p-4 rounded-xl bg-rose-50 dark:bg-rose-900/20 border border-rose-200 dark:border-rose-800 flex items-center gap-3"
+                            >
+                                <svg className="h-5 w-5 text-rose-600 dark:text-rose-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                <div>
+                                    <div className="text-sm font-medium text-rose-800 dark:text-rose-200">Generation failed</div>
+                                    <div className="text-xs text-rose-600 dark:text-rose-400">{activeJob.error_message || "An error occurred"}</div>
+                                </div>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
                     {/* Generate Button */}
                     <div className="mt-8 flex items-center justify-between">
                         <div className="text-sm text-slate-500 dark:text-slate-400">
@@ -500,13 +668,13 @@ const VideoDetailPage: React.FC = () => {
                         </div>
                         <motion.button
                             onClick={() => generateMutation.mutate()}
-                            disabled={generateMutation.isPending || isProcessing || isDownloading}
-                            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold shadow-md transition-all ${!isProcessing && !isDownloading && !generateMutation.isPending
+                            disabled={generateMutation.isPending || isProcessing || isDownloading || isGenerating}
+                            className={`inline-flex items-center gap-2 px-6 py-3 rounded-full text-sm font-semibold shadow-md transition-all ${!isProcessing && !isDownloading && !generateMutation.isPending && !isGenerating
                                 ? "bg-primary text-white hover:bg-primary/90"
                                 : "bg-slate-300 dark:bg-slate-600 text-slate-500 dark:text-slate-400 cursor-not-allowed"
                                 }`}
-                            whileHover={!isProcessing && !isDownloading && !generateMutation.isPending ? { scale: 1.02 } : {}}
-                            whileTap={!isProcessing && !isDownloading && !generateMutation.isPending ? { scale: 0.98 } : {}}
+                            whileHover={!isProcessing && !isDownloading && !generateMutation.isPending && !isGenerating ? { scale: 1.02 } : {}}
+                            whileTap={!isProcessing && !isDownloading && !generateMutation.isPending && !isGenerating ? { scale: 0.98 } : {}}
                         >
                             {generateMutation.isPending ? (
                                 <>
@@ -514,7 +682,15 @@ const VideoDetailPage: React.FC = () => {
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    {needsDownload ? "Downloading & Generating..." : "Generating..."}
+                                    Starting...
+                                </>
+                            ) : isGenerating ? (
+                                <>
+                                    <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Generating...
                                 </>
                             ) : isDownloading ? (
                                 "Downloading..."

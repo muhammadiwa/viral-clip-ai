@@ -23,7 +23,7 @@ vi.mock("../lib/apiClient", () => ({
 
 import { api } from "../lib/apiClient";
 
-const mockedApi = api as {
+const mockedApi = api as unknown as {
     get: ReturnType<typeof vi.fn>;
     put: ReturnType<typeof vi.fn>;
 };

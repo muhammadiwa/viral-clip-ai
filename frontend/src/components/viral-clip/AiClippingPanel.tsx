@@ -62,7 +62,7 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
     }
   });
 
-  useQuery({
+  const { data: jobData } = useQuery({
     queryKey: ["job", batchJobId],
     enabled: Boolean(batchJobId),
     queryFn: async () => {
@@ -70,13 +70,17 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
       return res.data;
     },
     refetchInterval: batchJobId ? 3000 : false,
-    onSuccess: (job) => {
-      setBatchProgress(`${job.status} ${job.progress?.toFixed?.(0) ?? ""}%`);
-      if (job.status === "completed" || job.status === "failed") {
+  });
+
+  // Handle job status updates (replaces deprecated onSuccess)
+  useEffect(() => {
+    if (jobData) {
+      setBatchProgress(`${jobData.status} ${jobData.progress?.toFixed?.(0) ?? ""}%`);
+      if (jobData.status === "completed" || jobData.status === "failed") {
         setBatchJobId(null);
       }
     }
-  });
+  }, [jobData]);
 
   const selectedStyle = useMemo(
     () => styles?.find((s) => s.id === selectedStyleId) || styles?.find((s) => s.is_default_global),
@@ -226,7 +230,7 @@ const AiClippingPanel: React.FC<Props> = ({ video, onBatchCreated }) => {
             >
               <div className="font-semibold text-slate-800">{style.name}</div>
               <div className="text-[11px] text-slate-500">
-                {style.style_json.font_family || "Sans"} • {style.style_json.position || "bottom"}
+                {String(style.style_json.font_family || "Sans")} • {String(style.style_json.position || "bottom")}
               </div>
             </button>
           ))}

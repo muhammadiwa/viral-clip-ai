@@ -49,26 +49,33 @@ async def create_video_from_youtube_instant(
     current_user: User = Depends(get_current_user),
 ):
     """
-    Create a video record from YouTube URL by fetching metadata only (instant).
+    Create or get existing video record from YouTube URL by fetching metadata only (instant).
     
-    This endpoint does NOT download the video file. It only:
+    This endpoint implements duplicate prevention:
     1. Extracts video ID from URL
-    2. Fetches metadata via oEmbed API
-    3. Creates VideoSource record with is_downloaded=False
-    4. Generates a unique slug from the video title
+    2. Checks if video with same youtube_video_id + user_id exists
+    3. If exists, returns existing video with is_existing=True
+    4. If not exists, fetches metadata via oEmbed API and creates new record
+    5. Generates a unique slug from the video title
     
     The video can be previewed using YouTube embed player.
     Download will be triggered when user requests clip generation.
     
-    Requirements: 1.1, 1.2, 4.1, 6.1
+    Returns:
+        VideoInstantResponse with:
+        - video: The VideoSource record (existing or newly created)
+        - is_existing: True if video already existed, False if newly created
+    
+    Requirements: 1.1, 1.2, 1.3, 2.1, 2.2
     """
     try:
-        video = await video_ingest.create_video_from_youtube_url(
+        result = await video_ingest.create_or_get_video_from_youtube(
             db=db,
             user=current_user,
             youtube_url=youtube_url,
         )
-        return {"video": video}
+        video, is_new = result
+        return {"video": video, "is_existing": not is_new}
     except YouTubeMetadataError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

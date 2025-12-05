@@ -4,7 +4,12 @@ export type ProcessingJob = {
   job_type: string;
   status: string;
   progress: number;
+  progress_message?: string | null;
+  current_step?: string | null;
+  total_steps?: number | null;
+  current_step_num?: number | null;
   error_message?: string | null;
+  result_summary?: Record<string, unknown> | null;
 };
 
 export type VideoSource = {

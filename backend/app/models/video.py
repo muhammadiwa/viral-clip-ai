@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, JSON, Boolean
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey, JSON, Boolean, UniqueConstraint
 from sqlalchemy.orm import relationship
 
 from app.db.base import Base
@@ -7,6 +7,9 @@ from app.models.common import TimestampMixin
 
 class VideoSource(Base, TimestampMixin):
     __tablename__ = "video_sources"
+    __table_args__ = (
+        UniqueConstraint('youtube_video_id', 'user_id', name='uq_youtube_video_user'),
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)

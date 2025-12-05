@@ -34,8 +34,16 @@ class VideoCreateResponse(BaseModel):
 
 
 class VideoInstantResponse(BaseModel):
-    """Response for instant YouTube metadata fetch (no job created)."""
+    """Response for instant YouTube metadata fetch (no job created).
+    
+    Attributes:
+        video: The VideoSource record (existing or newly created)
+        is_existing: True if video already existed for this user, False if newly created
+        
+    Requirements: 1.3
+    """
     video: VideoSourceOut
+    is_existing: bool = False
 
 
 class TranscriptSegmentOut(BaseModel):

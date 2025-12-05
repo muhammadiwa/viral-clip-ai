@@ -1,23 +1,37 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
 import { api } from "../../lib/apiClient";
 import { useQueryClient } from "@tanstack/react-query";
 import { VideoSource, VideoCreateResponse } from "../../types/api";
-import YouTubePlayer from "./YouTubePlayer";
+import { useNavigate } from "react-router-dom";
 
 type Props = {
   onVideoCreated: (video?: VideoSource, jobId?: number) => void;
 };
 
-type PreviewState = {
-  loading: boolean;
-  video: VideoSource | null;
-  error: string | null;
+// Response type for instant YouTube endpoint
+type VideoInstantResponse = {
+  video: VideoSource;
+  is_existing: boolean;
 };
 
-// Helper to extract YouTube video ID from URL for preview validation
+/**
+ * Extract YouTube video ID from various URL formats.
+ * Returns null if URL is not a valid YouTube URL.
+ * 
+ * Supports:
+ * - youtube.com/watch?v=VIDEO_ID
+ * - youtu.be/VIDEO_ID
+ * - youtube.com/embed/VIDEO_ID
+ * - youtube.com/shorts/VIDEO_ID
+ * - Direct VIDEO_ID (11 characters)
+ * 
+ * Requirements: 2.3
+ */
 const extractYouTubeVideoId = (url: string): string | null => {
-  if (!url) return null;
+  if (!url || !url.trim()) return null;
+
+  const trimmedUrl = url.trim();
 
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/,
@@ -25,27 +39,10 @@ const extractYouTubeVideoId = (url: string): string | null => {
   ];
 
   for (const pattern of patterns) {
-    const match = url.match(pattern);
+    const match = trimmedUrl.match(pattern);
     if (match) return match[1];
   }
   return null;
-};
-
-// Debounce hook
-const useDebounce = <T,>(value: T, delay: number): T => {
-  const [debouncedValue, setDebouncedValue] = useState<T>(value);
-
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedValue(value);
-    }, delay);
-
-    return () => {
-      clearTimeout(handler);
-    };
-  }, [value, delay]);
-
-  return debouncedValue;
 };
 
 const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
@@ -53,81 +50,89 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
-  const [preview, setPreview] = useState<PreviewState>({
-    loading: false,
-    video: null,
-    error: null,
-  });
+  const [validationError, setValidationError] = useState<string | null>(null);
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
-  // Debounce the URL input to avoid too many API calls
-  const debouncedUrl = useDebounce(youtubeUrl, 500);
-
-  // Fetch metadata when URL changes (instant preview)
-  const fetchMetadata = useCallback(async (url: string) => {
-    const videoId = extractYouTubeVideoId(url);
-
-    if (!videoId) {
-      if (url.trim()) {
-        setPreview({ loading: false, video: null, error: "Invalid YouTube URL" });
-      } else {
-        setPreview({ loading: false, video: null, error: null });
-      }
+  // Validate URL format on input change (frontend only, no API call)
+  // Requirements: 2.3, 2.4, 2.5
+  useEffect(() => {
+    if (!youtubeUrl.trim()) {
+      setValidationError(null);
       return;
     }
 
-    setPreview({ loading: true, video: null, error: null });
-
-    try {
-      const form = new FormData();
-      form.append("youtube_url", url);
-      const res = await api.post<{ video: VideoSource }>("/viral-clip/video/youtube/instant", form);
-      setPreview({ loading: false, video: res.data.video, error: null });
-    } catch (err: any) {
-      const errorMessage = err?.response?.data?.detail || "Failed to fetch video info";
-      setPreview({ loading: false, video: null, error: errorMessage });
-    }
-  }, []);
-
-  // Effect to fetch metadata when debounced URL changes
-  useEffect(() => {
-    if (debouncedUrl) {
-      fetchMetadata(debouncedUrl);
+    const videoId = extractYouTubeVideoId(youtubeUrl);
+    if (!videoId) {
+      setValidationError("Invalid YouTube URL format");
     } else {
-      setPreview({ loading: false, video: null, error: null });
+      setValidationError(null);
     }
-  }, [debouncedUrl, fetchMetadata]);
+  }, [youtubeUrl]);
 
-  // Clear preview when switching to file upload
+  // Clear validation when switching to file upload
   useEffect(() => {
     if (file) {
       setYoutubeUrl("");
-      setPreview({ loading: false, video: null, error: null });
+      setValidationError(null);
     }
   }, [file]);
 
-  const handleSubmit = async () => {
-    if (!youtubeUrl && !file) {
-      setStatus("Paste a link or choose a file first.");
+  // Check if URL is valid for enabling the button
+  const isValidYoutubeUrl = youtubeUrl.trim() !== "" && extractYouTubeVideoId(youtubeUrl) !== null;
+
+  // Handle "Get Clips" button click
+  // Requirements: 5.1, 5.2, 5.3, 5.4
+  const handleGetClips = async () => {
+    if (!isValidYoutubeUrl) {
+      setStatus("Please enter a valid YouTube URL.");
       return;
     }
+
     setLoading(true);
     setStatus(null);
+
     try {
-      if (youtubeUrl) {
-        const form = new FormData();
-        form.append("youtube_url", youtubeUrl);
-        const res = await api.post<VideoCreateResponse>("/viral-clip/video/youtube", form);
-        onVideoCreated(res.data.video, res.data.job?.id);
-      } else if (file) {
-        const form = new FormData();
-        form.append("file", file);
-        const res = await api.post<VideoCreateResponse>("/viral-clip/video/upload", form);
-        onVideoCreated(res.data.video, res.data.job?.id);
-      }
+      const form = new FormData();
+      form.append("youtube_url", youtubeUrl);
+
+      // Call POST /viral-clip/video/youtube/instant only when button clicked
+      const res = await api.post<VideoInstantResponse>("/viral-clip/video/youtube/instant", form);
+
+      // On success (new or existing video), redirect to video detail page
+      const video = res.data.video;
+
+      // Clear form state
       setYoutubeUrl("");
+      await qc.invalidateQueries({ queryKey: ["videos"] });
+
+      // Redirect to video detail page using slug
+      navigate(`/ai-viral-clip/video/${video.slug}`);
+    } catch (err: any) {
+      // Show error message if API fails
+      const errorMessage = err?.response?.data?.detail || "Failed to process video. Please try again.";
+      setStatus(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle file upload submit (legacy flow)
+  const handleFileSubmit = async () => {
+    if (!file) {
+      setStatus("Please choose a file first.");
+      return;
+    }
+
+    setLoading(true);
+    setStatus(null);
+
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await api.post<VideoCreateResponse>("/viral-clip/video/upload", form);
+      onVideoCreated(res.data.video, res.data.job?.id);
       setFile(null);
-      setPreview({ loading: false, video: null, error: null });
       await qc.invalidateQueries({ queryKey: ["videos"] });
       setStatus("Video uploaded! Processing will start automatically.");
     } catch (err: any) {
@@ -137,16 +142,10 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
     }
   };
 
-  const clearPreview = () => {
+  const clearUrl = () => {
     setYoutubeUrl("");
-    setPreview({ loading: false, video: null, error: null });
-  };
-
-  const formatDuration = (seconds: number | null | undefined): string => {
-    if (!seconds) return "";
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    return `${mins}:${secs.toString().padStart(2, "0")}`;
+    setValidationError(null);
+    setStatus(null);
   };
 
   return (
@@ -160,17 +159,20 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
       {/* URL Input */}
       <div className="w-full max-w-xl relative">
         <input
-          className="w-full rounded-xl border border-dashed border-primary/40 bg-white/80 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-primary/40 text-center pr-10"
+          className={`w-full rounded-xl border border-dashed ${validationError ? "border-red-400" : "border-primary/40"
+            } bg-white/80 px-4 py-3 text-sm outline-none focus:ring-2 ${validationError ? "focus:ring-red-400" : "focus:ring-primary/40"
+            } text-center pr-10`}
           placeholder="Drop a YouTube link or paste URL..."
           value={youtubeUrl}
           onChange={(e) => setYoutubeUrl(e.target.value)}
-          disabled={!!file}
+          disabled={!!file || loading}
         />
         {youtubeUrl && (
           <button
-            onClick={clearPreview}
+            onClick={clearUrl}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
             type="button"
+            disabled={loading}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -179,87 +181,17 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
         )}
       </div>
 
-      {/* Loading State */}
-      <AnimatePresence mode="wait">
-        {preview.loading && (
-          <motion.div
-            key="loading"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="w-full max-w-xl"
-          >
-            <div className="flex items-center justify-center gap-2 py-4 text-slate-600">
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary"></div>
-              <span className="text-sm">Fetching video info...</span>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Error State */}
-        {preview.error && !preview.loading && (
-          <motion.div
-            key="error"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="w-full max-w-xl"
-          >
-            <div className="flex items-center justify-center gap-2 py-3 px-4 bg-red-50 rounded-xl border border-red-200">
-              <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="text-sm text-red-600">{preview.error}</span>
-            </div>
-          </motion.div>
-        )}
-
-        {/* Preview State */}
-        {preview.video && !preview.loading && (
-          <motion.div
-            key="preview"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="w-full max-w-xl"
-          >
-            <div className="bg-white rounded-xl overflow-hidden shadow-sm border border-slate-200">
-              {/* YouTube Player Preview */}
-              {preview.video.youtube_video_id && (
-                <div className="aspect-video">
-                  <YouTubePlayer
-                    videoId={preview.video.youtube_video_id}
-                    className="w-full h-full"
-                  />
-                </div>
-              )}
-
-              {/* Video Info */}
-              <div className="p-4">
-                <h3 className="font-medium text-slate-800 text-sm line-clamp-2 mb-2">
-                  {preview.video.title || "Untitled Video"}
-                </h3>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
-                  {preview.video.duration_seconds && (
-                    <span className="flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      {formatDuration(preview.video.duration_seconds)}
-                    </span>
-                  )}
-                  <span className="flex items-center gap-1 text-emerald-600">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Ready to generate clips
-                  </span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Inline Validation Error - Requirements: 2.5 */}
+      {validationError && youtubeUrl && (
+        <div className="w-full max-w-xl">
+          <div className="flex items-center justify-center gap-2 py-2 px-4 bg-red-50 rounded-xl border border-red-200">
+            <svg className="w-4 h-4 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-sm text-red-600">{validationError}</span>
+          </div>
+        </div>
+      )}
 
       {/* File Upload Option */}
       <div className="flex gap-3 text-xs justify-center">
@@ -270,6 +202,7 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
             className="hidden"
             accept="video/*"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            disabled={loading}
           />
         </label>
         {file && (
@@ -279,6 +212,7 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
               onClick={() => setFile(null)}
               className="hover:text-emerald-900"
               type="button"
+              disabled={loading}
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -288,15 +222,22 @@ const UploadCard: React.FC<Props> = ({ onVideoCreated }) => {
         )}
       </div>
 
-      {/* Submit Button */}
+      {/* Submit Button - Requirements: 2.4 */}
       <motion.button
-        onClick={handleSubmit}
-        disabled={loading || preview.loading}
+        onClick={file ? handleFileSubmit : handleGetClips}
+        disabled={loading || (!file && !isValidYoutubeUrl)}
         className="w-full max-w-xl inline-flex items-center justify-center rounded-full bg-primary text-white px-6 py-3 text-sm font-semibold shadow-md disabled:opacity-60"
-        whileHover={{ scale: loading || preview.loading ? 1 : 1.02 }}
-        whileTap={{ scale: loading || preview.loading ? 1 : 0.97 }}
+        whileHover={{ scale: loading ? 1 : 1.02 }}
+        whileTap={{ scale: loading ? 1 : 0.97 }}
       >
-        {loading ? "Processing..." : "Get Clips"}
+        {loading ? (
+          <>
+            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+            Processing...
+          </>
+        ) : (
+          "Get Clips"
+        )}
       </motion.button>
 
       {status && <div className="text-xs text-slate-600 text-center">{status}</div>}
