@@ -10,11 +10,11 @@ type Props = {
   onSelect?: (video: VideoSource) => void;
 };
 
-// Status badge component for video status display (Requirement 5.1, 5.2, 5.3, 5.4)
+// Status badge component - only show for active states (downloading, processing, failed)
 const StatusBadge: React.FC<{ video: VideoSource }> = ({ video }) => {
-  // Determine status based on video state
+  // Determine status based on video state - only show important states
   const getStatusInfo = () => {
-    // YouTube video that hasn't been downloaded yet
+    // Show downloading progress
     if (video.youtube_video_id && !video.is_downloaded) {
       if (video.download_progress > 0 && video.download_progress < 100) {
         return {
@@ -28,40 +28,21 @@ const StatusBadge: React.FC<{ video: VideoSource }> = ({ video }) => {
           )
         };
       }
-      return {
-        label: "Ready to Generate",
-        color: "bg-emerald-100 text-emerald-700",
-        icon: (
-          <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-        )
-      };
+      // Don't show "Ready to Generate" badge - it's unnecessary
+      return null;
     }
 
-    // Check processing status
+    // Check processing status - only show for active processing or failed
     switch (video.status) {
       case "pending":
       case "processing":
         return {
-          label: "Analyzing",
+          label: "Processing",
           color: "bg-amber-100 text-amber-700",
           icon: (
             <svg className="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-          )
-        };
-      case "ready":
-      case "analyzed":
-        return {
-          label: "Ready",
-          color: "bg-green-100 text-green-700",
-          icon: (
-            <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
           )
         };
@@ -75,6 +56,7 @@ const StatusBadge: React.FC<{ video: VideoSource }> = ({ video }) => {
             </svg>
           )
         };
+      // Don't show badge for ready/analyzed - it's the normal state
       default:
         return null;
     }
@@ -168,16 +150,12 @@ const VideoHistoryGrid: React.FC<Props> = ({ selectedId, onSelect }) => {
   }
 
   // Check if video is ready to be selected
-  // YouTube videos without download are still selectable (they show preview)
-  // Only truly processing videos should be disabled
+  // All videos are selectable except failed ones
   const isVideoSelectable = (video: VideoSource) => {
-    // YouTube videos that haven't been downloaded are still viewable
-    if (video.youtube_video_id && !video.is_downloaded) {
-      // Only disable if actively downloading
-      return video.download_progress === 0 || video.download_progress >= 100;
-    }
-    // For other videos, check status
-    return video.status === "ready" || video.status === "analyzed";
+    // Failed videos cannot be selected
+    if (video.status === "failed") return false;
+    // All other videos are selectable (including YouTube videos not yet downloaded)
+    return true;
   };
 
   return (
@@ -207,7 +185,7 @@ const VideoHistoryGrid: React.FC<Props> = ({ selectedId, onSelect }) => {
               whileHover={canSelect ? { y: -3 } : {}}
               title={!canSelect ? "Video sedang diproses, tunggu sampai selesai" : ""}
             >
-              <div className="h-32 bg-slate-200 flex items-center justify-center text-xs text-slate-600 grain relative overflow-hidden">
+              <div className="aspect-video bg-slate-200 flex items-center justify-center text-xs text-slate-600 grain relative overflow-hidden">
                 <VideoThumbnail video={v} canSelect={canSelect} />
                 <StatusBadge video={v} />
               </div>

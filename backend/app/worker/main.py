@@ -44,11 +44,13 @@ def _create_job_notification(
     # Determine user_id from the job's video
     user_id = None
     video_title = "your video"
+    video_slug = None
     video_id = None
     
     if job.video:
         user_id = job.video.user_id
         video_title = job.video.title or "your video"
+        video_slug = job.video.slug
         video_id = job.video_source_id
     
     if not user_id:
@@ -86,8 +88,14 @@ def _create_job_notification(
         else:
             default_message = f"Processing failed for '{video_title}': {error_msg}"
     
-    # Build link to video detail page
-    link = f"/video/{video_id}" if video_id else None
+    # Build link to video detail page using slug (new routing format)
+    # Fallback to ID-based route if slug is not available
+    if video_slug:
+        link = f"/ai-viral-clip/video/{video_slug}"
+    elif video_id:
+        link = f"/ai-viral-clip/video/id-{video_id}"
+    else:
+        link = None
     
     notification = Notification(
         user_id=user_id,
@@ -359,15 +367,145 @@ def _process_transcription_and_segmentation(db: Session, job: ProcessingJob):
 def _process_clip_generation(db: Session, job: ProcessingJob):
     payload = job.payload or {}
     batch_id = payload.get("clip_batch_id")
+    needs_download = payload.get("needs_download", False)
+    
     batch = db.query(ClipBatch).filter(ClipBatch.id == batch_id).first()
     if not batch:
         raise ValueError("Clip batch not found")
+    
+    video = batch.video
+    if not video:
+        raise ValueError("Video not found for batch")
+    
+    # Check if download is actually needed (in case flag wasn't set correctly)
+    actual_needs_download = needs_download or (not video.is_downloaded and video.source_type == "youtube")
+    
+    # Check if transcription/analysis is needed for progress tracking
+    pre_transcript_count = db.query(TranscriptSegment).filter(
+        TranscriptSegment.video_source_id == video.id
+    ).count()
+    pre_analysis = db.query(VideoAnalysis).filter(
+        VideoAnalysis.video_source_id == video.id
+    ).first()
 
-    # Create progress tracker
-    tracker = create_clip_generation_tracker(db, job)
+    # Create progress tracker with appropriate steps
+    tracker = create_clip_generation_tracker(
+        db, job, 
+        needs_download=actual_needs_download,
+        needs_transcription=(pre_transcript_count == 0),
+        needs_analysis=(pre_analysis is None),
+    )
+    
+    # Step 0: Download video if needed (YouTube lazy processing)
+    if actual_needs_download:
+        tracker.start_step("download", "Downloading video from YouTube")
+        video.status = "downloading"
+        db.commit()
+        
+        try:
+            from app.services import video_ingest
+            import asyncio
+            
+            # Progress callback for download
+            def download_progress(percent: float, message: str):
+                tracker.update(percent / 100.0, message)
+                video.download_progress = percent
+                db.commit()
+            
+            # Run async download in sync context
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                video = loop.run_until_complete(
+                    video_ingest.trigger_video_download(db, video, progress_callback=download_progress)
+                )
+            finally:
+                loop.close()
+            
+            tracker.complete_step(f"Downloaded video successfully")
+            logger.info("worker.download_complete", video_id=video.id)
+        except Exception as e:
+            video.status = "failed"
+            video.error_message = f"Download failed: {str(e)}"
+            db.commit()
+            tracker.fail(f"Download failed: {str(e)}")
+            raise ValueError(f"Failed to download video: {str(e)}")
+    
+    # Check if transcription is needed (Smart Processing)
+    existing_transcript_count = db.query(TranscriptSegment).filter(
+        TranscriptSegment.video_source_id == video.id
+    ).count()
+    needs_transcription = existing_transcript_count == 0
+    
+    # Check if analysis is needed (Smart Processing)
+    existing_analysis = db.query(VideoAnalysis).filter(
+        VideoAnalysis.video_source_id == video.id
+    ).first()
+    needs_analysis = existing_analysis is None
     
     # Step 1: Initialize
     tracker.start_step("init", "Preparing clip generation")
+    
+    # Run transcription if needed
+    if needs_transcription:
+        logger.info("worker.clip_gen_needs_transcription", video_id=video.id)
+        video.status = "processing"
+        db.commit()
+        
+        # Transcribe video
+        tracker.set_message("Transcribing video...")
+        segments = transcription.transcribe_video(db, video)
+        logger.info("worker.transcription_done", video_id=video.id, segments=len(segments))
+    else:
+        segments = db.query(TranscriptSegment).filter(
+            TranscriptSegment.video_source_id == video.id
+        ).all()
+        logger.info("worker.using_existing_transcript", video_id=video.id, segments=len(segments))
+    
+    # Run analysis if needed
+    if needs_analysis:
+        logger.info("worker.clip_gen_needs_analysis", video_id=video.id)
+        tracker.set_message("Analyzing video content...")
+        
+        duration = video.duration_seconds or utils.probe_duration(video.file_path) or 0.0
+        
+        # Perform comprehensive analysis
+        analysis_data = segmentation.analyze_video_comprehensive(
+            video.file_path, duration, segments, lambda p, m: None
+        )
+        
+        # Save analysis to database
+        ai_vision_summary = analysis_data.get("ai_vision_summary") or {}
+        video_analysis = VideoAnalysis(
+            video_source_id=video.id,
+            analysis_version="v3",
+            duration_analyzed=duration,
+            avg_audio_energy=analysis_data.get("avg_audio_energy", 0.5),
+            avg_visual_interest=analysis_data.get("avg_visual_interest", 0.5),
+            avg_engagement=analysis_data.get("avg_engagement", 0.5),
+            audio_peaks_count=len(analysis_data.get("audio_peaks", [])),
+            visual_peaks_count=len(analysis_data.get("visual_peaks", [])),
+            viral_moments_count=len(analysis_data.get("viral_moments", [])),
+            audio_timeline_json=analysis_data.get("audio_timeline"),
+            visual_timeline_json=analysis_data.get("visual_timeline"),
+            combined_timeline_json=analysis_data.get("combined_timeline"),
+            audio_peaks_json=analysis_data.get("audio_peaks"),
+            visual_peaks_json=analysis_data.get("visual_peaks"),
+            engagement_peaks_json=analysis_data.get("viral_moments"),
+            ai_vision_enabled=analysis_data.get("ai_vision_enabled", False),
+            ai_vision_timeline_json=analysis_data.get("ai_vision_timeline"),
+            ai_vision_summary_json=ai_vision_summary,
+            ai_viral_segments_json=analysis_data.get("ai_viral_segments"),
+        )
+        db.add(video_analysis)
+        db.commit()
+        logger.info("worker.analysis_done", video_id=video.id)
+        
+        # Save segment analyses
+        _save_segment_analyses(db, segments)
+    else:
+        logger.info("worker.using_existing_analysis", video_id=video.id)
+    
     tracker.complete_step()
     
     # Step 2-5: Generate clips (handled in virality service)

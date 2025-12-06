@@ -207,18 +207,51 @@ def create_transcription_tracker(db: Session, job: ProcessingJob) -> ProgressTra
     ])
 
 
-def create_clip_generation_tracker(db: Session, job: ProcessingJob) -> ProgressTracker:
-    """Create tracker for clip_generation job."""
-    return ProgressTracker(db, job, [
-        ProgressStep("init", "Initializing", 0.02),
-        ProgressStep("analyze", "Analyzing video content", 0.20),
-        ProgressStep("find_peaks", "Finding engagement peaks", 0.10),
-        ProgressStep("llm_select", "AI selecting best clips", 0.15),
-        ProgressStep("score_clips", "Scoring clips", 0.08),
+def create_clip_generation_tracker(
+    db: Session, 
+    job: ProcessingJob, 
+    needs_download: bool = False,
+    needs_transcription: bool = False,
+    needs_analysis: bool = False,
+) -> ProgressTracker:
+    """Create tracker for clip_generation job.
+    
+    Args:
+        db: Database session
+        job: Processing job
+        needs_download: If True, includes download step at the beginning
+        needs_transcription: If True, includes transcription step
+        needs_analysis: If True, includes analysis step
+    """
+    steps = []
+    
+    if needs_download:
+        steps.append(ProgressStep("download", "Downloading video from YouTube", 0.25))
+    
+    # Init step includes transcription and analysis if needed
+    init_weight = 0.02
+    if needs_transcription:
+        init_weight += 0.15  # Transcription takes time
+    if needs_analysis:
+        init_weight += 0.10  # Analysis takes time
+    
+    steps.extend([
+        ProgressStep("init", "Preparing clip generation", init_weight),
+        ProgressStep("analyze", "Analyzing video content", 0.15),
+        ProgressStep("find_peaks", "Finding engagement peaks", 0.08),
+        ProgressStep("llm_select", "AI selecting best clips", 0.10),
+        ProgressStep("score_clips", "Scoring clips", 0.05),
         ProgressStep("generate_subtitles", "Generating subtitles", 0.05),
-        ProgressStep("render_clips", "Rendering clip videos", 0.35),
-        ProgressStep("finalize", "Finalizing", 0.05),
+        ProgressStep("render_clips", "Rendering clip videos", 0.25),
+        ProgressStep("finalize", "Finalizing", 0.03),
     ])
+    
+    # Normalize weights
+    total_weight = sum(s.weight for s in steps)
+    for step in steps:
+        step.weight = step.weight / total_weight
+    
+    return ProgressTracker(db, job, steps)
 
 
 def create_export_tracker(db: Session, job: ProcessingJob) -> ProgressTracker:

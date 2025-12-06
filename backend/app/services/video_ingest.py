@@ -93,6 +93,7 @@ async def create_or_get_video_from_youtube(
         return VideoResult(video=existing_video, is_new=False)
     
     # No existing video found, fetch metadata and create new record
+    # This will also fetch duration using yt-dlp
     video_info = await youtube_metadata_service.get_video_info(youtube_url)
     
     # Generate unique slug from title

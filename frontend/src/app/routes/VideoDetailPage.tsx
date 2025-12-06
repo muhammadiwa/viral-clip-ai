@@ -146,11 +146,16 @@ const VideoDetailPage: React.FC = () => {
     }, [video?.id, video?.duration_seconds]);
 
     const maxTime = Math.max(60, Math.ceil(video?.duration_seconds ?? 180));
-    const isVideoReady = video?.status === "ready" || video?.status === "analyzed";
-    const isProcessing = video?.status === "processing" || video?.status === "pending";
-    const isDownloading = video?.status === "downloading";
     const isYouTubeVideo = video?.source_type === "youtube";
     const needsDownload = isYouTubeVideo && !video?.is_downloaded;
+    const isDownloading = video?.status === "downloading";
+    // For lazy processing: don't show processing overlay for YouTube videos that haven't been downloaded yet
+    // They should show the YouTube embed player instead
+    const isProcessing = (video?.status === "processing" || video?.status === "pending") && !needsDownload;
+    // Video is ready to generate clips if:
+    // 1. Status is ready/analyzed (already processed), OR
+    // 2. It's a YouTube video that needs download (lazy processing - will download when generating)
+    const isVideoReady = video?.status === "ready" || video?.status === "analyzed" || needsDownload;
     const isGenerating = Boolean(activeJobId) && activeJob?.status !== "completed" && activeJob?.status !== "failed";
 
     const formatDuration = (seconds: number) => {
@@ -189,7 +194,7 @@ const VideoDetailPage: React.FC = () => {
         return false;
     }, [activeJob?.result_summary]);
 
-    // Get status display info
+    // Get status display info - only show for downloading, processing, or failed states
     const getStatusInfo = (): { label: string; progress: number; color: string; showProgress: boolean } | null => {
         if (isDownloading) {
             return {
@@ -215,14 +220,7 @@ const VideoDetailPage: React.FC = () => {
                 showProgress: false,
             };
         }
-        if (needsDownload) {
-            return {
-                label: "Ready to Generate",
-                progress: 0,
-                color: "emerald",
-                showProgress: false,
-            };
-        }
+        // Don't show "Ready to Generate" badge - it's unnecessary
         return null;
     };
 
@@ -430,18 +428,7 @@ const VideoDetailPage: React.FC = () => {
                         </div>
                     )}
 
-                    {/* Ready to Generate Info (for YouTube videos not yet downloaded) */}
-                    {needsDownload && !isDownloading && (
-                        <div className="mb-6 p-4 rounded-xl bg-emerald-50 border border-emerald-200 flex items-center gap-3">
-                            <svg className="h-5 w-5 text-emerald-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                            </svg>
-                            <div>
-                                <div className="text-sm font-medium text-emerald-800">Ready to generate clips</div>
-                                <div className="text-xs text-emerald-600">Video will be downloaded automatically when you click Generate</div>
-                            </div>
-                        </div>
-                    )}
+
 
                     <h2 className="text-lg font-semibold text-slate-900 dark:text-white mb-6">Generate New Clips</h2>
 

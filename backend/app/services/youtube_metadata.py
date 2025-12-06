@@ -122,15 +122,104 @@ class YouTubeMetadataService:
         """
         return f"https://img.youtube.com/vi/{video_id}/{quality}.jpg"
     
-    async def get_video_info(self, youtube_url: str) -> YouTubeVideoInfo:
+    def _get_duration_with_ytdlp(self, video_id: str) -> Optional[int]:
         """
-        Fetch video metadata from YouTube using oEmbed API.
+        Get video duration using yt-dlp (fast, no download).
+        
+        Args:
+            video_id: YouTube video ID
+            
+        Returns:
+            Duration in seconds or None if failed
+        """
+        try:
+            import yt_dlp
+            
+            url = f"https://www.youtube.com/watch?v={video_id}"
+            
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'skip_download': True,
+                'extract_flat': False,  # Need full info for duration
+                'socket_timeout': 10,  # Timeout for network operations
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                duration = info.get('duration')
+                if duration:
+                    logger.info("youtube.duration_fetched", video_id=video_id, duration=duration)
+                    return int(duration)
+                    
+        except Exception as e:
+            logger.warning("youtube.duration_fetch_failed", video_id=video_id, error=str(e))
+            
+        return None
+    
+    async def get_video_info_fast(self, youtube_url: str) -> YouTubeVideoInfo:
+        """
+        Fetch video metadata from YouTube using oEmbed API only (fast, no duration).
+        
+        Use this for instant preview where speed is critical.
+        Duration will be fetched later during download.
         
         Args:
             youtube_url: YouTube URL in any supported format
             
         Returns:
-            YouTubeVideoInfo with title, thumbnail_url, etc.
+            YouTubeVideoInfo with title, thumbnail_url (duration will be None)
+        """
+        import urllib.request
+        import urllib.parse
+        import json
+        import ssl
+        
+        video_id = self.extract_video_id(youtube_url)
+        if not video_id:
+            raise YouTubeMetadataError(f"Invalid YouTube URL: {youtube_url}")
+        
+        # Build oEmbed request URL
+        canonical_url = f"https://www.youtube.com/watch?v={video_id}"
+        oembed_params = urllib.parse.urlencode({
+            "url": canonical_url,
+            "format": "json"
+        })
+        oembed_request_url = f"{self.OEMBED_URL}?{oembed_params}"
+        
+        try:
+            ctx = ssl.create_default_context()
+            req = urllib.request.Request(oembed_request_url, headers={
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            })
+            
+            with urllib.request.urlopen(req, timeout=5, context=ctx) as response:
+                data = json.loads(response.read().decode('utf-8'))
+            
+            logger.info("youtube.oembed_fast_success", video_id=video_id, title=data.get("title", "")[:50])
+            
+            return YouTubeVideoInfo(
+                video_id=video_id,
+                title=data.get("title", f"YouTube Video {video_id}"),
+                thumbnail_url=self.get_thumbnail_url(video_id, "maxresdefault"),
+                duration_seconds=None,  # Skip duration for fast response
+                channel_name=data.get("author_name"),
+                channel_url=data.get("author_url"),
+            )
+            
+        except Exception as e:
+            logger.error("youtube.oembed_fast_error", video_id=video_id, error=str(e))
+            raise YouTubeMetadataError(f"Failed to fetch video info: {str(e)}")
+
+    async def get_video_info(self, youtube_url: str) -> YouTubeVideoInfo:
+        """
+        Fetch video metadata from YouTube using oEmbed API + yt-dlp for duration.
+        
+        Args:
+            youtube_url: YouTube URL in any supported format
+            
+        Returns:
+            YouTubeVideoInfo with title, thumbnail_url, duration, etc.
             
         Raises:
             YouTubeMetadataError: If video ID cannot be extracted or API fails
@@ -174,11 +263,14 @@ class YouTubeMetadataService:
             # oEmbed provides thumbnail but we'll use our own URL for better quality
             thumbnail_url = self.get_thumbnail_url(video_id, "maxresdefault")
             
+            # Get duration using yt-dlp (fast, metadata only)
+            duration_seconds = self._get_duration_with_ytdlp(video_id)
+            
             return YouTubeVideoInfo(
                 video_id=video_id,
                 title=title,
                 thumbnail_url=thumbnail_url,
-                duration_seconds=None,  # oEmbed doesn't provide duration
+                duration_seconds=duration_seconds,
                 channel_name=channel_name,
                 channel_url=channel_url,
             )

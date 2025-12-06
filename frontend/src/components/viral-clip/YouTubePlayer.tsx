@@ -205,7 +205,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
     }, [videoId, startTime, endTime, autoplay, handleReady, handleStateChange, handleError]);
 
     return (
-        <div className={`relative bg-black overflow-hidden ${className}`}>
+        <div className={`bg-black overflow-hidden ${className}`}>
             {isLoading && !hasError && (
                 <div className="absolute inset-0 flex items-center justify-center bg-slate-900 z-10">
                     <div className="text-center">
@@ -236,7 +236,7 @@ const YouTubePlayer: React.FC<YouTubePlayerProps> = ({
             )}
             <div
                 ref={containerRef}
-                className="absolute inset-0 [&>iframe]:w-full [&>iframe]:h-full"
+                className="w-full h-full [&>iframe]:w-full [&>iframe]:h-full"
             />
         </div>
     );

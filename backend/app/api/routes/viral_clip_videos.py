@@ -244,6 +244,57 @@ async def trigger_video_download(
         )
 
 
+@router.post("/videos/{video_id}/fetch-duration", response_model=VideoSourceOut)
+async def fetch_video_duration(
+    video_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Fetch and update video duration from YouTube.
+    
+    This endpoint fetches the duration using yt-dlp for YouTube videos
+    that were created with instant preview (which skips duration fetch for speed).
+    
+    If duration is already set, returns immediately (idempotent).
+    """
+    from app.services.youtube_metadata import youtube_metadata_service
+    
+    video = (
+        db.query(VideoSource)
+        .filter(VideoSource.id == video_id, VideoSource.user_id == current_user.id)
+        .first()
+    )
+    if not video:
+        raise HTTPException(status_code=404, detail="Video not found")
+    
+    # If duration already set, return immediately
+    if video.duration_seconds:
+        return video
+    
+    # Only YouTube videos can fetch duration this way
+    if video.source_type != "youtube" or not video.youtube_video_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Duration fetch only available for YouTube videos"
+        )
+    
+    # Fetch duration using yt-dlp
+    try:
+        duration = youtube_metadata_service._get_duration_with_ytdlp(video.youtube_video_id)
+        if duration:
+            video.duration_seconds = duration
+            db.commit()
+            db.refresh(video)
+    except Exception as e:
+        # Don't fail the request, just log and return video without duration
+        import structlog
+        logger = structlog.get_logger()
+        logger.warning("duration_fetch_failed", video_id=video_id, error=str(e))
+    
+    return video
+
+
 @router.get("/videos/{video_id}/download")
 def download_video(
     video_id: int,

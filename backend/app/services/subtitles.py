@@ -13,19 +13,32 @@ settings = get_settings()
 
 def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
     """Generate subtitle segments by slicing transcript to the clip window."""
-    logger.info("subtitles.generate", clip_id=clip.id)
+    logger.info("subtitles.generate", clip_id=clip.id, start=clip.start_time_sec, end=clip.end_time_sec)
+    
+    # Find transcript segments that OVERLAP with clip window (not just fully contained)
+    # A segment overlaps if: segment.start < clip.end AND segment.end > clip.start
     transcript_segments = (
         db.query(TranscriptSegment)
         .filter(
             TranscriptSegment.video_source_id == clip.batch.video_source_id,
-            TranscriptSegment.start_time_sec >= clip.start_time_sec,
-            TranscriptSegment.end_time_sec <= clip.end_time_sec,
+            TranscriptSegment.start_time_sec < clip.end_time_sec,
+            TranscriptSegment.end_time_sec > clip.start_time_sec,
         )
         .order_by(TranscriptSegment.start_time_sec)
         .all()
     )
+    
+    logger.info("subtitles.transcript_found", clip_id=clip.id, count=len(transcript_segments))
 
     if not transcript_segments:
+        # Log warning - this shouldn't happen if transcription ran correctly
+        logger.warning(
+            "subtitles.no_transcript_fallback",
+            clip_id=clip.id,
+            video_source_id=clip.batch.video_source_id,
+            clip_start=clip.start_time_sec,
+            clip_end=clip.end_time_sec,
+        )
         transcript_segments = [
             TranscriptSegment(
                 video_source_id=clip.batch.video_source_id,
