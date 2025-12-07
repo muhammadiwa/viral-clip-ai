@@ -216,6 +216,33 @@ def transcribe_video(
     if not all_segments:
         raise RuntimeError("Transcription produced no segments")
 
+    # Deduplicate consecutive segments with identical text
+    # This can happen when Whisper produces overlapping or repeated segments
+    deduped_segments = []
+    prev_text = None
+    for seg in all_segments:
+        text = seg.text.strip()
+        if text and text != prev_text:
+            deduped_segments.append(seg)
+            prev_text = text
+        else:
+            logger.debug(
+                "transcription.skip_duplicate",
+                video_id=video.id,
+                text=text[:50] if text else "(empty)",
+            )
+    
+    if len(deduped_segments) < len(all_segments):
+        logger.info(
+            "transcription.deduplicated",
+            video_id=video.id,
+            original=len(all_segments),
+            deduped=len(deduped_segments),
+            removed=len(all_segments) - len(deduped_segments),
+        )
+    
+    all_segments = deduped_segments
+
     video.duration_seconds = max(seg.end_time_sec for seg in all_segments)
 
     db.query(TranscriptSegment).filter(TranscriptSegment.video_source_id == video.id).delete()

@@ -12,8 +12,19 @@ settings = get_settings()
 
 
 def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
-    """Generate subtitle segments by slicing transcript to the clip window."""
+    """Generate subtitle segments by slicing transcript to the clip window.
+    
+    This function:
+    1. Finds transcript segments that overlap with the clip time window
+    2. Trims timestamps to fit within clip boundaries
+    3. Filters word-level timestamps to only include words within clip
+    4. Deduplicates consecutive segments with identical text
+    5. Merges overlapping segments with same text
+    """
     logger.info("subtitles.generate", clip_id=clip.id, start=clip.start_time_sec, end=clip.end_time_sec)
+    
+    clip_start = clip.start_time_sec
+    clip_end = clip.end_time_sec
     
     # Find transcript segments that OVERLAP with clip window (not just fully contained)
     # A segment overlaps if: segment.start < clip.end AND segment.end > clip.start
@@ -21,8 +32,8 @@ def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
         db.query(TranscriptSegment)
         .filter(
             TranscriptSegment.video_source_id == clip.batch.video_source_id,
-            TranscriptSegment.start_time_sec < clip.end_time_sec,
-            TranscriptSegment.end_time_sec > clip.start_time_sec,
+            TranscriptSegment.start_time_sec < clip_end,
+            TranscriptSegment.end_time_sec > clip_start,
         )
         .order_by(TranscriptSegment.start_time_sec)
         .all()
@@ -36,36 +47,111 @@ def generate_for_clip(db: Session, clip: Clip) -> List[SubtitleSegment]:
             "subtitles.no_transcript_fallback",
             clip_id=clip.id,
             video_source_id=clip.batch.video_source_id,
-            clip_start=clip.start_time_sec,
-            clip_end=clip.end_time_sec,
+            clip_start=clip_start,
+            clip_end=clip_end,
         )
         transcript_segments = [
             TranscriptSegment(
                 video_source_id=clip.batch.video_source_id,
-                start_time_sec=clip.start_time_sec,
-                end_time_sec=clip.end_time_sec,
+                start_time_sec=clip_start,
+                end_time_sec=clip_end,
                 text=clip.description or clip.title or "Clip content",
                 language="en",
             )
         ]
 
+    # Delete existing subtitles for this clip
     db.query(SubtitleSegment).filter(SubtitleSegment.clip_id == clip.id).delete()
-    subtitles: List[SubtitleSegment] = []
+    
+    # Process segments: trim, filter words, deduplicate
+    processed_segments = []
+    prev_text = None
+    
     for seg in transcript_segments:
+        text = seg.text.strip()
+        
+        # Skip empty text
+        if not text:
+            continue
+        
+        # Skip duplicate consecutive text (same text as previous segment)
+        if text == prev_text:
+            logger.debug("subtitles.skip_duplicate", clip_id=clip.id, text=text[:50])
+            continue
+        
+        # Trim timestamps to clip boundaries
+        seg_start = max(seg.start_time_sec, clip_start)
+        seg_end = min(seg.end_time_sec, clip_end)
+        
+        # Skip if segment is too short after trimming (less than 50ms)
+        if seg_end - seg_start < 0.05:
+            continue
+        
+        # Filter word-level timestamps to only include words within clip window
+        words_json = None
+        if seg.words_json:
+            filtered_words = []
+            for word in seg.words_json:
+                word_start = word.get("start", 0)
+                word_end = word.get("end", 0)
+                # Include word if it overlaps with clip window
+                if word_start < clip_end and word_end > clip_start:
+                    # Trim word timestamps to clip boundaries
+                    filtered_words.append({
+                        "word": word.get("word", ""),
+                        "start": max(word_start, clip_start),
+                        "end": min(word_end, clip_end),
+                    })
+            if filtered_words:
+                words_json = filtered_words
+        
+        processed_segments.append({
+            "start": seg_start,
+            "end": seg_end,
+            "text": text,
+            "language": seg.language or "en",
+            "words_json": words_json,
+        })
+        
+        prev_text = text
+    
+    # Merge overlapping segments with same text
+    merged_segments = []
+    for seg in processed_segments:
+        if merged_segments and seg["text"] == merged_segments[-1]["text"]:
+            # Same text as previous - extend the end time
+            merged_segments[-1]["end"] = max(merged_segments[-1]["end"], seg["end"])
+            # Merge words if available
+            if seg["words_json"] and merged_segments[-1]["words_json"]:
+                merged_segments[-1]["words_json"].extend(seg["words_json"])
+        else:
+            merged_segments.append(seg)
+    
+    # Create subtitle segments
+    subtitles: List[SubtitleSegment] = []
+    for seg in merged_segments:
         subtitles.append(
             SubtitleSegment(
                 clip_id=clip.id,
-                start_time_sec=seg.start_time_sec,
-                end_time_sec=seg.end_time_sec,
-                text=seg.text,
-                language=seg.language or "en",
-                words_json=seg.words_json,  # Copy word-level timestamps for karaoke
+                start_time_sec=seg["start"],
+                end_time_sec=seg["end"],
+                text=seg["text"],
+                language=seg["language"],
+                words_json=seg["words_json"],
             )
         )
+    
     for sub in subtitles:
         db.add(sub)
     db.commit()
-    logger.info("subtitles.done", clip_id=clip.id, count=len(subtitles))
+    
+    logger.info(
+        "subtitles.done", 
+        clip_id=clip.id, 
+        original_count=len(transcript_segments),
+        final_count=len(subtitles),
+        deduplicated=len(transcript_segments) - len(subtitles),
+    )
     return subtitles
 
 

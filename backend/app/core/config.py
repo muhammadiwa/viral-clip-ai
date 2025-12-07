@@ -55,6 +55,14 @@ class Settings(BaseSettings):
     jwt_secret: str = Field(default="", alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", alias="JWT_ALGORITHM")
     jwt_expires_minutes: int = Field(default=60, alias="JWT_EXPIRES_MINUTES")
+    
+    # Google OAuth settings
+    google_client_id: str = Field(default="", alias="GOOGLE_CLIENT_ID")
+
+    # reCAPTCHA settings
+    recaptcha_enabled: bool = Field(default=False, alias="RECAPTCHA_ENABLED")
+    recaptcha_site_key: str = Field(default="", alias="RECAPTCHA_SITE_KEY")
+    recaptcha_secret_key: str = Field(default="", alias="RECAPTCHA_SECRET_KEY")
 
     # Redis settings
     redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")

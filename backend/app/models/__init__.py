@@ -10,6 +10,7 @@ from app.models.export import ExportJob
 from app.models.analysis import VideoAnalysis, SegmentAnalysis, ClipAnalysis
 from app.models.notification import Notification
 from app.models.user_preference import UserPreference
+from app.models.password_reset import PasswordResetToken
 
 __all__ = [
     "User",
@@ -31,4 +32,5 @@ __all__ = [
     "ClipAnalysis",
     "Notification",
     "UserPreference",
+    "PasswordResetToken",
 ]

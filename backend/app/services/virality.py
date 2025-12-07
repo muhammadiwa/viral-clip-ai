@@ -416,36 +416,43 @@ def _generate_hashtags_with_llm(
     client = utils.get_openai_client()
     
     if not client or not transcript_text.strip():
+        logger.info("virality.hashtag_fallback_no_client", has_client=bool(client), has_text=bool(transcript_text.strip()))
         return _generate_smart_hashtags(transcript_text, video_type, [], title)
     
     try:
-        prompt = f"""Generate 8-10 viral hashtags for this social media clip.
+        prompt = f"""You are a social media expert. Generate 8-10 HIGHLY RELEVANT viral hashtags for this clip.
 
 TITLE: "{title}"
 VIDEO TYPE: {video_type}
-TRANSCRIPT PREVIEW: "{transcript_text[:400]}"
+CONTENT: "{transcript_text[:500]}"
 
-RULES:
-- Include #fyp and #viral
-- Add niche-specific hashtags based on content
-- Include trending hashtags relevant to the topic
-- Mix broad reach tags with specific niche tags
-- NO spaces in hashtags, use camelCase for multi-word
-- Return ONLY hashtags separated by spaces, no # symbol
+CRITICAL RULES:
+1. Hashtags MUST be directly related to the actual content/topic
+2. Include 2-3 broad reach tags (fyp, viral, foryou)
+3. Include 3-4 topic-specific tags based on what the video is ACTUALLY about
+4. Include 2-3 niche/community tags
+5. NO generic filler hashtags - every tag must add value
+6. NO spaces in hashtags, use camelCase for multi-word
+7. Analyze the content carefully - if it's about robots, include robot-related tags
 
-Example output: fyp viral podcast motivation mindset success entrepreneur grind
+EXAMPLES:
+- Video about cooking: fyp viral cooking recipe foodtok chef homemade delicious
+- Video about robots: fyp viral robot technology ai future robotics science
+- Video about fitness: fyp viral fitness workout gym health motivation gains
 
-Output hashtags only:"""
+Return ONLY hashtags separated by spaces, no # symbol, no explanation:"""
 
         response = client.responses.create(
             model=settings.openai_responses_model,
             input=[
                 {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
             ],
-            temperature=0.7,
+            temperature=0.5,  # Lower temperature for more focused results
         )
         
         resp_text = _extract_response_text(response)
+        logger.info("virality.hashtag_llm_response", response=resp_text[:200] if resp_text else "empty")
+        
         if resp_text:
             # Parse hashtags from response
             tags = resp_text.strip().replace("#", "").split()
@@ -453,20 +460,25 @@ Output hashtags only:"""
             clean_tags = []
             for tag in tags:
                 clean = ''.join(c for c in tag if c.isalnum() or c == '_')
-                if clean and len(clean) > 1:
+                if clean and len(clean) > 1 and len(clean) < 30:  # Reasonable length
                     clean_tags.append(clean.lower())
             
-            if clean_tags:
-                # Ensure fyp and viral are included
-                if "fyp" not in clean_tags:
-                    clean_tags.insert(0, "fyp")
-                if "viral" not in clean_tags:
-                    clean_tags.insert(1, "viral")
-                return clean_tags[:10]
+            if len(clean_tags) >= 5:  # Only use if we got enough good tags
+                # Ensure fyp and viral are included at the start
+                result_tags = []
+                if "fyp" in clean_tags:
+                    clean_tags.remove("fyp")
+                if "viral" in clean_tags:
+                    clean_tags.remove("viral")
+                result_tags = ["fyp", "viral"] + clean_tags
+                
+                logger.info("virality.hashtag_generated", tags=result_tags[:10])
+                return result_tags[:10]
     except Exception as e:
         logger.warning("virality.hashtag_gen_failed", error=str(e))
     
     # Fallback to rule-based
+    logger.info("virality.hashtag_fallback_used")
     return _generate_smart_hashtags(transcript_text, video_type, [], title)
 
 
@@ -1148,13 +1160,57 @@ def _create_clips_from_llm(
         )
         
         llm_viral_score = float(clip_obj.get("viral_score", 0))
+        
+        # Calculate data-driven score from grades (each grade score is 0-10)
         data_viral_score = (
             grades_data["hook"]["score"] * 0.35 +
             grades_data["flow"]["score"] * 0.20 +
             grades_data["value"]["score"] * 0.25 +
             grades_data["trend"]["score"] * 0.20
         )
-        final_score = (llm_viral_score + data_viral_score) / 2 if llm_viral_score > 0 else data_viral_score
+        
+        # Get grades - prefer data-driven grades for consistency
+        # LLM grades are often just letters without proper analysis
+        final_grade_hook = grades_data["hook"]["grade"]
+        final_grade_flow = grades_data["flow"]["grade"]
+        final_grade_value = grades_data["value"]["grade"]
+        final_grade_trend = grades_data["trend"]["grade"]
+        
+        # Calculate final score that's CONSISTENT with grades
+        # If all grades are A (score ~8-9), final score should be ~8-9
+        # Grade to score mapping: A=9, B=7, C=5, D=3
+        grade_to_score = {"A": 9.0, "B": 7.0, "C": 5.0, "D": 3.0}
+        grade_based_score = (
+            grade_to_score.get(final_grade_hook, 5.0) * 0.35 +
+            grade_to_score.get(final_grade_flow, 5.0) * 0.20 +
+            grade_to_score.get(final_grade_value, 5.0) * 0.25 +
+            grade_to_score.get(final_grade_trend, 5.0) * 0.20
+        )
+        
+        # Use grade-based score as primary, LLM score as secondary influence
+        if llm_viral_score > 0:
+            # Weight: 70% grade-based, 30% LLM
+            final_score = (grade_based_score * 0.7) + (llm_viral_score * 0.3)
+        else:
+            final_score = grade_based_score
+        
+        logger.debug(
+            "virality.clip_score_calc",
+            clip_idx=idx,
+            llm_score=llm_viral_score,
+            data_score=data_viral_score,
+            grade_based_score=grade_based_score,
+            final_score=final_score,
+            grades=f"H:{final_grade_hook} F:{final_grade_flow} V:{final_grade_value} T:{final_grade_trend}",
+        )
+        
+        # Get description from LLM, ensure it's not empty or same as transcript
+        llm_description = clip_obj.get("description", "")
+        
+        # If description is empty, too short, or looks like raw transcript, generate a better one
+        if not llm_description or len(llm_description) < 30 or llm_description == transcript_text[:len(llm_description)]:
+            # Generate a catchy description
+            llm_description = _generate_catchy_description(transcript_text, clip_obj.get("title", ""))
         
         clip = Clip(
             clip_batch_id=batch.id,
@@ -1162,12 +1218,12 @@ def _create_clips_from_llm(
             end_time_sec=end,
             duration_sec=duration_sec,
             title=clip_obj.get("title") or f"Viral moment #{idx+1}",
-            description=clip_obj.get("description"),
+            description=llm_description,
             viral_score=round(final_score, 1),
-            grade_hook=clip_obj.get("grades", {}).get("hook") or grades_data["hook"]["grade"],
-            grade_flow=clip_obj.get("grades", {}).get("flow") or grades_data["flow"]["grade"],
-            grade_value=clip_obj.get("grades", {}).get("value") or grades_data["value"]["grade"],
-            grade_trend=clip_obj.get("grades", {}).get("trend") or grades_data["trend"]["grade"],
+            grade_hook=final_grade_hook,
+            grade_flow=final_grade_flow,
+            grade_value=final_grade_value,
+            grade_trend=final_grade_trend,
             language=config.get("language") or "en",
             status="candidate",
         )
@@ -1177,12 +1233,67 @@ def _create_clips_from_llm(
     return clips
 
 
+def _generate_catchy_description(transcript_text: str, title: str) -> str:
+    """Generate a catchy social media description that's different from transcript."""
+    client = utils.get_openai_client()
+    
+    if not client or not transcript_text.strip():
+        # Fallback: create a generic catchy description
+        hooks = [
+            "Wait for it... 🔥",
+            "This is INSANE! 😱",
+            "You need to see this! 👀",
+            "Mind = Blown 🤯",
+            "This changes everything! ⚡",
+        ]
+        import random
+        return random.choice(hooks)
+    
+    try:
+        prompt = f"""Create a SHORT, CATCHY social media caption for this video clip.
+
+TITLE: "{title}"
+CONTENT PREVIEW: "{transcript_text[:300]}"
+
+RULES:
+- 80-120 characters MAX
+- Must be DIFFERENT from the transcript - don't just copy it
+- Use emojis (1-2 max)
+- Create curiosity or emotional hook
+- Sound like a viral TikTok caption
+- Examples: "Wait for it... 🔥", "This hit different 😤", "POV: when you finally get it 💡"
+
+Return ONLY the caption, nothing else:"""
+
+        response = client.responses.create(
+            model=settings.openai_responses_model,
+            input=[
+                {"role": "user", "content": [{"type": "input_text", "text": prompt}]},
+            ],
+            temperature=0.8,
+        )
+        
+        resp_text = _extract_response_text(response)
+        if resp_text and len(resp_text.strip()) > 10:
+            description = resp_text.strip().strip('"').strip("'")
+            # Ensure it's not too long
+            if len(description) > 150:
+                description = description[:147] + "..."
+            logger.info("virality.description_generated", description=description[:50])
+            return description
+    except Exception as e:
+        logger.warning("virality.description_gen_failed", error=str(e))
+    
+    # Fallback
+    return "This is a must-watch! 🔥"
+
+
 def _generate_viral_title_description(transcript_text: str, idx: int) -> Tuple[str, str]:
     """Generate viral title and description using AI."""
     client = utils.get_openai_client()
     
     if not client or not transcript_text.strip():
-        return f"Viral Moment #{idx+1}", transcript_text[:150] if transcript_text else ""
+        return f"Viral Moment #{idx+1}", _generate_catchy_description(transcript_text, "")
     
     try:
         prompt = f"""Based on this transcript, create a viral social media title and description.
@@ -1192,7 +1303,7 @@ TRANSCRIPT:
 
 RULES:
 - Title: Max 60 chars, catchy, curiosity-inducing, use power words
-- Description: 100-150 chars, engaging, include call-to-action feel
+- Description: 80-120 chars, engaging, use emojis, NOT a copy of transcript
 - Make it sound like a viral TikTok/YouTube Short
 - Use hooks like "Wait for it...", "This is insane!", "You won't believe..."
 
@@ -1212,10 +1323,14 @@ JSON only, no commentary."""
         resp_text = _extract_response_text(response)
         if resp_text:
             data = json.loads(resp_text.strip().strip("```json").strip("```"))
-            return (
-                data.get("title", f"Viral Moment #{idx+1}")[:60],
-                data.get("description", transcript_text[:150])[:200]
-            )
+            title = data.get("title", f"Viral Moment #{idx+1}")[:60]
+            description = data.get("description", "")
+            
+            # Ensure description is catchy, not just transcript
+            if not description or len(description) < 20 or description in transcript_text:
+                description = _generate_catchy_description(transcript_text, title)
+            
+            return title, description[:150]
     except Exception as e:
         logger.warning("virality.title_gen_failed", error=str(e))
     
@@ -1395,29 +1510,26 @@ def _generate_thumbnails_and_context(
         video_type = clip_llm_data.get("detected_video_type", "unknown") if clip_llm_data else "unknown"
         categories = clip_candidate_data.get("categories", []) if clip_candidate_data else []
         
-        # Get transcript for this clip
+        # Get transcript for this clip - IMPORTANT for contextual hashtags
         transcript_text = clip_candidate_data.get("transcript_full", "") if clip_candidate_data else ""
         if not transcript_text and clip.description:
             transcript_text = clip.description
+        if not transcript_text:
+            # Fallback: use title
+            transcript_text = clip.title or ""
         
-        # Generate smart hashtags
-        if clip_llm_data and clip_llm_data.get("hashtags"):
-            # Use LLM-generated hashtags but enhance them
-            llm_hashtags = clip_llm_data.get("hashtags", [])
-            smart_hashtags = _generate_smart_hashtags(
-                transcript_text, video_type, categories, clip.title or ""
-            )
-            # Merge: LLM hashtags first, then smart ones (deduplicated)
-            final_hashtags = list(llm_hashtags)
-            for tag in smart_hashtags:
-                if tag not in final_hashtags:
-                    final_hashtags.append(tag)
-            final_hashtags = final_hashtags[:10]
-        else:
-            # Generate hashtags using LLM or fallback to smart generation
-            final_hashtags = _generate_hashtags_with_llm(
-                transcript_text, clip.title or "", video_type
-            )
+        # ALWAYS generate hashtags using AI for contextual results
+        # Don't rely on LLM clip hashtags which may be generic
+        final_hashtags = _generate_hashtags_with_llm(
+            transcript_text, clip.title or "", video_type
+        )
+        
+        logger.info(
+            "clip.hashtags_generated",
+            clip_id=clip.id,
+            hashtags=final_hashtags[:5],
+            transcript_preview=transcript_text[:50],
+        )
         
         db.add(ClipLLMContext(
             clip_id=clip.id,

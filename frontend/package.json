@@ -11,12 +11,17 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@react-oauth/google": "^0.12.2",
+    "@react-three/drei": "^9.122.0",
+    "@react-three/fiber": "^8.18.0",
     "@tanstack/react-query": "^5.0.0",
     "axios": "^1.7.0",
     "framer-motion": "^11.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.2"
+    "react-google-recaptcha": "^3.1.0",
+    "react-router-dom": "^6.22.2",
+    "three": "^0.181.2"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.6.3",
@@ -25,6 +30,8 @@
     "@types/node": "^22.10.2",
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
+    "@types/react-google-recaptcha": "^2.1.9",
+    "@types/three": "^0.181.0",
     "@vitejs/plugin-react-swc": "^3.0.0",
     "autoprefixer": "^10.4.0",
     "fast-check": "^3.23.2",

@@ -238,15 +238,32 @@ def _write_srt_for_preview(
     clip_start: float,
     path: Path,
 ) -> Path:
-    """Write SRT file for clip preview, adjusting timestamps relative to clip start."""
+    """Write SRT file for clip preview, adjusting timestamps relative to clip start.
+    
+    Also deduplicates consecutive identical text to prevent double subtitles.
+    """
     lines = []
-    for idx, seg in enumerate(subtitles, 1):
+    prev_text = None
+    idx = 0
+    
+    for seg in subtitles:
+        text = seg.get("text", "").strip()
+        
+        # Skip empty or duplicate consecutive text
+        if not text or text == prev_text:
+            continue
+        
+        idx += 1
         start = max(seg["start_time_sec"] - clip_start, 0)
         end = max(seg["end_time_sec"] - clip_start, start + 0.1)
+        
         lines.append(str(idx))
         lines.append(f"{_format_srt_timestamp(start)} --> {_format_srt_timestamp(end)}")
-        lines.append(seg["text"])
+        lines.append(text)
         lines.append("")
+        
+        prev_text = text
+    
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
@@ -273,6 +290,10 @@ def _write_ass_for_preview(
     This creates an ASS subtitle file that highlights each word as it's spoken,
     similar to karaoke style subtitles popular on TikTok/Reels.
     
+    IMPORTANT: All subtitle events use the SAME position (alignment + margins).
+    The word highlight effect changes ONLY the text styling, not the position.
+    This prevents subtitles from appearing in multiple positions simultaneously.
+    
     Supported highlight styles:
     - color: Change text color of current word
     - background: Add background box behind current word
@@ -281,6 +302,37 @@ def _write_ass_for_preview(
     - underline: Add underline to current word
     - gradient: Use highlight color (ASS doesn't support true gradients)
     """
+    # Pre-process subtitles: deduplicate consecutive identical text
+    # This prevents the same subtitle from appearing twice
+    deduped_subtitles = []
+    prev_text = None
+    prev_end = 0.0
+    
+    for sub in subtitles:
+        text = sub.get("text", "").strip()
+        start = sub.get("start_time_sec", 0)
+        
+        # Skip if:
+        # 1. Empty text
+        # 2. Same text as previous (duplicate)
+        # 3. Overlapping with previous segment (causes double display)
+        if not text:
+            continue
+        if text == prev_text:
+            logger.debug("ass.skip_duplicate_text", text=text[:30])
+            continue
+        if start < prev_end - 0.05:  # Allow 50ms tolerance
+            logger.debug("ass.skip_overlapping", start=start, prev_end=prev_end, text=text[:30])
+            continue
+        
+        deduped_subtitles.append(sub)
+        prev_text = text
+        prev_end = sub.get("end_time_sec", start + 1)
+    
+    subtitles = deduped_subtitles
+    
+    logger.info("ass.deduped_subtitles", original_count=len(subtitles), final_count=len(deduped_subtitles))
+    
     # Get dimensions and optimal sizes based on aspect ratio
     # All sizes are calculated as percentage of video height for consistency
     # Reference: 9:16 (1080x1920) is the base, others are scaled proportionally
@@ -406,7 +458,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             continue
         
         if animation == "word_highlight" and highlight_style in supported_highlights:
-            # Word-by-word karaoke effect
+            # Word-by-word karaoke effect using ASS \kf (karaoke fill) tags
+            # This creates a SINGLE event with karaoke timing built-in
+            # NO MULTIPLE EVENTS = NO POSITION JUMPING
             words = text.split()
             
             # Check if we have word-level timestamps from Whisper
@@ -414,73 +468,39 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             has_word_timestamps = word_timestamps and len(word_timestamps) > 0
             
             if len(words) > 1:
-                # Calculate fallback word duration (used if no word timestamps)
-                word_duration = (end - start) / len(words)
+                # Calculate word durations in centiseconds (ASS karaoke uses centiseconds)
+                total_duration_cs = int((end - start) * 100)
+                word_duration_cs = total_duration_cs // len(words)
+                
+                # Build karaoke text with \kf tags
+                # \kf = karaoke fill (smooth highlight)
+                # Format: {\kf<duration>}word where duration is in centiseconds
+                karaoke_parts = []
                 
                 for word_idx, word in enumerate(words):
-                    # Use word-level timestamps if available, otherwise calculate
                     if has_word_timestamps and word_idx < len(word_timestamps):
                         wt = word_timestamps[word_idx]
-                        word_start = max(wt.get("start", 0) - clip_start, 0)
-                        word_end = max(wt.get("end", 0) - clip_start, word_start + 0.1)
+                        w_start = wt.get("start", 0) - clip_start
+                        w_end = wt.get("end", 0) - clip_start
+                        w_duration_cs = max(10, int((w_end - w_start) * 100))
                     else:
-                        # Fallback: evenly distribute words
-                        word_start = start + (word_idx * word_duration)
-                        word_end = word_start + word_duration
+                        w_duration_cs = word_duration_cs
                     
-                    # Build the line with current word highlighted
-                    line_parts = []
-                    for i, w in enumerate(words):
-                        if i == word_idx:
-                            # Current word - highlighted based on style
-                            if highlight_style == "color":
-                                # Simple color change
-                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
-                            
-                            elif highlight_style == "background":
-                                # Background box using border style 3
-                                line_parts.append(f"{{\\3c{secondary_color}\\bord8}}{w}{{\\3c{outline_color_ass}\\bord{outline_width}}}")
-                            
-                            elif highlight_style == "scale":
-                                # Scale up current word
-                                scale = int(style.get("scaleAmount", 1.2) * 100)
-                                line_parts.append(f"{{\\fscx{scale}\\fscy{scale}\\c{secondary_color}}}{w}{{\\fscx100\\fscy100\\c{primary_color}}}")
-                            
-                            elif highlight_style in ["glow", "neon_glow"]:
-                                # Glow effect - simulated with colored shadow + blur
-                                # Use \blur for glow effect and colored outline
-                                glow_radius = style.get("glowRadius", 10)
-                                blur_amount = min(glow_radius, 5)  # ASS blur max ~5 looks good
-                                line_parts.append(
-                                    f"{{\\c{secondary_color}\\3c{secondary_color}\\blur{blur_amount}\\bord{outline_width + 2}}}{w}"
-                                    f"{{\\c{primary_color}\\3c{outline_color_ass}\\blur0\\bord{outline_width}}}"
-                                )
-                            
-                            elif highlight_style == "underline":
-                                # Underline effect using ASS underline tag
-                                line_parts.append(f"{{\\u1\\c{secondary_color}}}{w}{{\\u0\\c{primary_color}}}")
-                            
-                            elif highlight_style == "gradient":
-                                # ASS doesn't support true gradients, use highlight color
-                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
-                            
-                            elif highlight_style == "comic_burst":
-                                # Comic effect - scale + color + slight rotation
-                                line_parts.append(
-                                    f"{{\\fscx130\\fscy130\\c{secondary_color}\\frz-3}}{w}"
-                                    f"{{\\fscx100\\fscy100\\c{primary_color}\\frz0}}"
-                                )
-                            
-                            else:
-                                # Fallback to color change
-                                line_parts.append(f"{{\\c{secondary_color}}}{w}{{\\c{primary_color}}}")
-                        else:
-                            line_parts.append(w)
-                    
-                    highlighted_text = " ".join(line_parts)
-                    events.append(
-                        f"Dialogue: 0,{_format_ass_timestamp(word_start)},{_format_ass_timestamp(word_end)},Default,,0,0,0,,{highlighted_text}"
-                    )
+                    # Apply highlight style to the karaoke effect
+                    if highlight_style == "color":
+                        # Use \kf for smooth color fill karaoke
+                        karaoke_parts.append(f"{{\\kf{w_duration_cs}}}{word}")
+                    elif highlight_style == "scale":
+                        # Scale effect with karaoke
+                        karaoke_parts.append(f"{{\\kf{w_duration_cs}}}{word}")
+                    else:
+                        # Default karaoke fill
+                        karaoke_parts.append(f"{{\\kf{w_duration_cs}}}{word}")
+                
+                karaoke_text = " ".join(karaoke_parts)
+                events.append(
+                    f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{karaoke_text}"
+                )
             else:
                 # Single word, just show it
                 events.append(
@@ -488,23 +508,27 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 )
         
         elif animation == "typewriter":
-            # Typewriter effect - characters appear one by one
-            chars = list(text)
+            # Typewriter effect using ASS \ko (karaoke outline) for character-by-character
+            chars = list(text.replace(" ", ""))  # Remove spaces for char count
             if len(chars) > 0:
-                char_duration = (end - start) / len(chars)
+                total_duration_cs = int((end - start) * 100)
+                char_duration_cs = max(5, total_duration_cs // len(chars))
                 
-                for char_idx in range(1, len(chars) + 1):
-                    char_start = start + ((char_idx - 1) * char_duration)
-                    char_end = start + (char_idx * char_duration)
-                    
-                    # Show text up to current character
-                    visible_text = text[:char_idx]
-                    events.append(
-                        f"Dialogue: 0,{_format_ass_timestamp(char_start)},{_format_ass_timestamp(char_end)},Default,,0,0,0,,{visible_text}"
-                    )
+                # Build typewriter text - each character appears one by one
+                typewriter_parts = []
+                for char in text:
+                    if char == " ":
+                        typewriter_parts.append(" ")
+                    else:
+                        typewriter_parts.append(f"{{\\ko{char_duration_cs}}}{char}")
+                
+                typewriter_text = "".join(typewriter_parts)
+                events.append(
+                    f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{typewriter_text}"
+                )
         
         else:
-            # No animation, regular subtitle
+            # No animation, regular subtitle - ONE event per segment
             events.append(
                 f"Dialogue: 0,{_format_ass_timestamp(start)},{_format_ass_timestamp(end)},Default,,0,0,0,,{text}"
             )
