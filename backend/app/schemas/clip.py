@@ -47,6 +47,7 @@ class ClipOut(BaseModel):
     thumbnail_path: Optional[str] = None
     video_path: Optional[str] = None
     aspect_ratio: Optional[str] = None
+    hashtags: Optional[List[str]] = None
     created_at: datetime
     updated_at: datetime
 

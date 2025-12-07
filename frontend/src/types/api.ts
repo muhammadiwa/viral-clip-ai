@@ -57,6 +57,7 @@ export type Clip = {
   video_path?: string | null;
   aspect_ratio?: string | null;
   created_at?: string | null;
+  hashtags?: string[] | null;
 };
 
 export type ClipDetail = Clip & {

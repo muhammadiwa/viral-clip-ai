@@ -39,7 +39,7 @@ def list_video_clips(
         .all()
     )
     
-    # Add aspect_ratio from batch config to each clip
+    # Add aspect_ratio and hashtags from batch config to each clip
     result = []
     for clip in clips:
         clip_data = ClipOut.model_validate(clip).model_dump()
@@ -48,6 +48,13 @@ def list_video_clips(
             clip_data["aspect_ratio"] = clip.batch.config_json.get("aspect_ratio", "16:9")
         else:
             clip_data["aspect_ratio"] = "16:9"
+        
+        # Get hashtags from LLM context
+        if clip.llm_context and clip.llm_context.response_json:
+            clip_data["hashtags"] = clip.llm_context.response_json.get("hashtags", [])
+        else:
+            clip_data["hashtags"] = []
+        
         result.append(clip_data)
     
     return result

@@ -1187,12 +1187,16 @@ def _create_clips_from_llm(
             grade_to_score.get(final_grade_trend, 5.0) * 0.20
         )
         
-        # Use grade-based score as primary, LLM score as secondary influence
+        # Use grade-based score as PRIMARY source of truth
+        # LLM score is only used as a minor adjustment (max ±0.5)
+        # This ensures score is ALWAYS consistent with displayed grades
+        final_score = grade_based_score
+        
         if llm_viral_score > 0:
-            # Weight: 70% grade-based, 30% LLM
-            final_score = (grade_based_score * 0.7) + (llm_viral_score * 0.3)
-        else:
-            final_score = grade_based_score
+            # LLM can only adjust score by ±0.5 max to maintain grade consistency
+            llm_adjustment = (llm_viral_score - grade_based_score) * 0.1  # 10% influence
+            llm_adjustment = max(-0.5, min(0.5, llm_adjustment))  # Clamp to ±0.5
+            final_score = grade_based_score + llm_adjustment
         
         logger.debug(
             "virality.clip_score_calc",
@@ -1371,7 +1375,14 @@ def _create_clips_from_candidates(
             timeline_data,
         )
         
-        viral_score = candidate["engagement_score"] * 10
+        # Calculate viral score from grades for consistency
+        grade_to_score = {"A": 9.0, "B": 7.0, "C": 5.0, "D": 3.0}
+        viral_score = (
+            grade_to_score.get(grades_data["hook"]["grade"], 5.0) * 0.35 +
+            grade_to_score.get(grades_data["flow"]["grade"], 5.0) * 0.20 +
+            grade_to_score.get(grades_data["value"]["grade"], 5.0) * 0.25 +
+            grade_to_score.get(grades_data["trend"]["grade"], 5.0) * 0.20
+        )
         
         clip = Clip(
             clip_batch_id=batch.id,
@@ -1424,13 +1435,13 @@ def _create_clips_from_transcripts(
                 [],  # No timeline data in fallback
             )
             
-            # Calculate viral score from grades
-            grade_to_score = {"A": 8.5, "B": 7.0, "C": 5.5, "D": 4.0}
+            # Calculate viral score from grades for consistency
+            grade_to_score = {"A": 9.0, "B": 7.0, "C": 5.0, "D": 3.0}
             viral_score = (
-                grade_to_score.get(grades_data["hook"]["grade"], 5.5) * 0.35 +
-                grade_to_score.get(grades_data["flow"]["grade"], 5.5) * 0.20 +
-                grade_to_score.get(grades_data["value"]["grade"], 5.5) * 0.25 +
-                grade_to_score.get(grades_data["trend"]["grade"], 5.5) * 0.20
+                grade_to_score.get(grades_data["hook"]["grade"], 5.0) * 0.35 +
+                grade_to_score.get(grades_data["flow"]["grade"], 5.0) * 0.20 +
+                grade_to_score.get(grades_data["value"]["grade"], 5.0) * 0.25 +
+                grade_to_score.get(grades_data["trend"]["grade"], 5.0) * 0.20
             )
             
             clip = Clip(

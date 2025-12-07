@@ -21,7 +21,7 @@ email_strategy = st.from_regex(r"[a-z]{3,10}@[a-z]{3,8}\.(com|org|net)", fullmat
 attempts_strategy = st.integers(min_value=1, max_value=20)
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_account_locks_after_max_failed_attempts(email: str):
     """
@@ -47,7 +47,7 @@ def test_account_locks_after_max_failed_attempts(email: str):
     assert lockout_seconds > 0, "Lockout duration should be positive"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy, num_attempts=st.integers(min_value=1, max_value=4))
 def test_account_not_locked_before_max_attempts(email: str, num_attempts: int):
     """
@@ -67,7 +67,7 @@ def test_account_not_locked_before_max_attempts(email: str, num_attempts: int):
     assert not is_locked, f"Account should not be locked after only {num_attempts} attempts"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_lockout_duration_is_correct(email: str):
     """
@@ -97,7 +97,7 @@ def test_lockout_duration_is_correct(email: str):
         f"Remaining seconds {remaining_seconds} is too low"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_successful_login_resets_lockout_state(email: str):
     """
@@ -121,7 +121,7 @@ def test_successful_login_resets_lockout_state(email: str):
     assert remaining == 5, f"Expected 5 remaining attempts after reset, got {remaining}"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_locked_account_returns_remaining_time(email: str):
     """
@@ -146,7 +146,7 @@ def test_locked_account_returns_remaining_time(email: str):
     assert remaining_seconds > 0, "Remaining seconds should be positive"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_remaining_attempts_decreases_with_failures(email: str):
     """
@@ -170,7 +170,7 @@ def test_remaining_attempts_decreases_with_failures(email: str):
     assert rate_limiter.get_remaining_attempts(email) == 1
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email1=email_strategy, email2=email_strategy)
 def test_lockout_is_per_email(email1: str, email2: str):
     """
@@ -201,7 +201,7 @@ def test_lockout_is_per_email(email1: str, email2: str):
     assert remaining == 5, f"email2 should have 5 attempts, got {remaining}"
 
 
-@settings(max_examples=100)
+@settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
 @given(email=email_strategy)
 def test_email_case_insensitivity(email: str):
     """

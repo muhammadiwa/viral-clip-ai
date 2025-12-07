@@ -111,6 +111,19 @@ const ClipCard: React.FC<Props> = ({ clip, onSelect, active }) => {
         {clip.description && (
           <div className="text-[11px] text-slate-600 line-clamp-2">{clip.description}</div>
         )}
+        {/* Hashtags preview */}
+        {clip.hashtags && clip.hashtags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {clip.hashtags.slice(0, 3).map((tag, i) => (
+              <span key={i} className="px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-[9px] font-medium">
+                #{tag}
+              </span>
+            ))}
+            {clip.hashtags.length > 3 && (
+              <span className="text-[9px] text-slate-400">+{clip.hashtags.length - 3}</span>
+            )}
+          </div>
+        )}
         <div className="text-[11px] text-slate-500 flex items-center gap-2">
           <span className="uppercase tracking-wide">{clip.language || "EN"}</span>
           {clip.status !== "ready" && (
