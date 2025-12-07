@@ -8,12 +8,18 @@ import { BrowserRouter } from "react-router-dom";
 
 const client = new QueryClient();
 
-// Google OAuth Client ID from environment variable
+// Google OAuth settings from environment variables
+const isGoogleOAuthEnabled = import.meta.env.VITE_GOOGLE_OAUTH_ENABLED === 'true';
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
+
+// Only use a valid client ID, use placeholder if disabled to prevent errors
+const effectiveClientId = isGoogleOAuthEnabled && googleClientId && googleClientId !== 'your-google-client-id.apps.googleusercontent.com'
+  ? googleClientId
+  : 'disabled'; // Use 'disabled' as placeholder - GoogleOAuthProvider requires non-empty string
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <GoogleOAuthProvider clientId={googleClientId}>
+    <GoogleOAuthProvider clientId={effectiveClientId}>
       <BrowserRouter>
         <QueryClientProvider client={client}>
           <App />

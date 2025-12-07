@@ -9,13 +9,13 @@ SHALL be locked for 15 minutes and display a message indicating the lockout dura
 """
 
 from datetime import datetime, timedelta
-from hypothesis import given, strategies as st, settings, assume
+from hypothesis import given, strategies as st, settings, assume, HealthCheck
 
 from app.services.rate_limiter import RateLimiter, reset_rate_limiter
 
 
-# Strategy for generating email addresses
-email_strategy = st.emails()
+# Strategy for generating email addresses - use simpler strategy for performance
+email_strategy = st.from_regex(r"[a-z]{3,10}@[a-z]{3,8}\.(com|org|net)", fullmatch=True)
 
 # Strategy for number of failed attempts
 attempts_strategy = st.integers(min_value=1, max_value=20)

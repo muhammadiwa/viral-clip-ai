@@ -2,7 +2,7 @@ import React, { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../../contexts/AuthContext';
 import { PasswordStrengthIndicator } from './PasswordStrengthIndicator';
-import { GoogleAuthButton } from '../GoogleAuthButton';
+import { GoogleAuthButton, isGoogleAuthAvailable } from '../GoogleAuthButton';
 import { CaptchaWidget, isCaptchaEnabled } from './CaptchaWidget';
 
 export type AuthMode = 'login' | 'register' | 'forgot-password' | 'reset-password';
@@ -63,15 +63,44 @@ export const validateName = (name: string): string | undefined => {
     return undefined;
 };
 
+// Animation configuration from design spec
+const ANIMATION_CONFIG = {
+    formTransition: 0.3,      // 300ms
+    staggerDelay: 0.05,       // 50ms per element
+    shakeAnimation: 0.5,      // 500ms
+    inputFocusGlow: 0.2,      // 200ms
+};
+
 const formVariants = {
     initial: { opacity: 0, x: 20 },
-    animate: { opacity: 1, x: 0 },
+    animate: {
+        opacity: 1,
+        x: 0,
+        transition: {
+            duration: ANIMATION_CONFIG.formTransition,
+            staggerChildren: ANIMATION_CONFIG.staggerDelay,
+        },
+    },
     exit: { opacity: 0, x: -20 },
+};
+
+// Staggered item animation for form elements
+const itemVariants = {
+    initial: { opacity: 0, y: 15 },
+    animate: {
+        opacity: 1,
+        y: 0,
+        transition: {
+            duration: 0.3,
+            ease: 'easeOut',
+        },
+    },
+    exit: { opacity: 0, y: -10 },
 };
 
 const shakeAnimation = {
     x: [0, -10, 10, -10, 10, 0],
-    transition: { duration: 0.5 },
+    transition: { duration: ANIMATION_CONFIG.shakeAnimation },
 };
 
 export const AuthForm: React.FC<AuthFormProps> = ({
@@ -323,9 +352,10 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                     {/* Name Field - Register only */}
                     {mode === 'register' && (
                         <motion.div
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
+                            variants={itemVariants}
+                            initial="initial"
+                            animate="animate"
+                            exit="exit"
                             className="space-y-1"
                         >
                             <label className="block text-sm font-medium text-slate-700">
@@ -335,7 +365,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                                 type="text"
                                 value={formState.name}
                                 onChange={(e) => updateField('name', e.target.value)}
-                                className={`w-full px-4 py-2.5 rounded-lg border transition-all duration-200
+                                className={`auth-input w-full px-4 py-2.5 rounded-lg border transition-all duration-200
                   focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
                   ${errors.name ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'}`}
                                 placeholder="Nama lengkap"
@@ -350,7 +380,10 @@ export const AuthForm: React.FC<AuthFormProps> = ({
 
                     {/* Email Field - All modes except reset-password */}
                     {mode !== 'reset-password' && (
-                        <div className="space-y-1">
+                        <motion.div
+                            variants={itemVariants}
+                            className="space-y-1"
+                        >
                             <label className="block text-sm font-medium text-slate-700">
                                 Email
                             </label>
@@ -358,7 +391,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                                 type="email"
                                 value={formState.email}
                                 onChange={(e) => updateField('email', e.target.value)}
-                                className={`w-full px-4 py-2.5 rounded-lg border transition-all duration-200
+                                className={`auth-input w-full px-4 py-2.5 rounded-lg border transition-all duration-200
                   focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
                   ${errors.email ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'}`}
                                 placeholder="email@example.com"
@@ -368,12 +401,15 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                             {errors.email && (
                                 <p className="text-xs text-red-500 mt-1">{errors.email}</p>
                             )}
-                        </div>
+                        </motion.div>
                     )}
 
                     {/* Password Field - Login, Register, Reset-password */}
                     {(mode === 'login' || mode === 'register' || mode === 'reset-password') && (
-                        <div className="space-y-1">
+                        <motion.div
+                            variants={itemVariants}
+                            className="space-y-1"
+                        >
                             <label className="block text-sm font-medium text-slate-700">
                                 {mode === 'reset-password' ? 'Password Baru' : 'Password'}
                             </label>
@@ -381,7 +417,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                                 type="password"
                                 value={formState.password}
                                 onChange={(e) => updateField('password', e.target.value)}
-                                className={`w-full px-4 py-2.5 rounded-lg border transition-all duration-200
+                                className={`auth-input w-full px-4 py-2.5 rounded-lg border transition-all duration-200
                   focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
                   ${errors.password ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'}`}
                                 placeholder="••••••••"
@@ -395,12 +431,15 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                             {(mode === 'register' || mode === 'reset-password') && formState.password && (
                                 <PasswordStrengthIndicator password={formState.password} />
                             )}
-                        </div>
+                        </motion.div>
                     )}
 
                     {/* Confirm Password Field - Register and Reset-password */}
                     {(mode === 'register' || mode === 'reset-password') && (
-                        <div className="space-y-1">
+                        <motion.div
+                            variants={itemVariants}
+                            className="space-y-1"
+                        >
                             <label className="block text-sm font-medium text-slate-700">
                                 Konfirmasi Password
                             </label>
@@ -408,7 +447,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                                 type="password"
                                 value={formState.confirmPassword}
                                 onChange={(e) => updateField('confirmPassword', e.target.value)}
-                                className={`w-full px-4 py-2.5 rounded-lg border transition-all duration-200
+                                className={`auth-input w-full px-4 py-2.5 rounded-lg border transition-all duration-200
                   focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
                   ${errors.confirmPassword ? 'border-red-300 bg-red-50' : 'border-slate-200 bg-white'}`}
                                 placeholder="••••••••"
@@ -418,7 +457,7 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                             {errors.confirmPassword && (
                                 <p className="text-xs text-red-500 mt-1">{errors.confirmPassword}</p>
                             )}
-                        </div>
+                        </motion.div>
                     )}
 
                     {/* CAPTCHA Widget - Register only */}
@@ -459,10 +498,13 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                     )}
 
                     {/* Submit Button */}
-                    <button
+                    <motion.button
+                        variants={itemVariants}
                         type="submit"
                         disabled={isFormLoading || showSuccess || isTokenInvalid}
-                        className="w-full py-2.5 px-4 bg-primary text-white font-semibold rounded-lg
+                        whileHover={{ scale: isFormLoading || showSuccess || isTokenInvalid ? 1 : 1.02 }}
+                        whileTap={{ scale: isFormLoading || showSuccess || isTokenInvalid ? 1 : 0.98 }}
+                        className="auth-submit-btn w-full py-2.5 px-4 bg-primary text-white font-semibold rounded-lg
               hover:bg-primary/90 focus:outline-none focus:ring-2 focus:ring-primary/20
               disabled:opacity-60 disabled:cursor-not-allowed transition-all duration-200
               flex items-center justify-center gap-2"
@@ -498,10 +540,10 @@ export const AuthForm: React.FC<AuthFormProps> = ({
                                 {mode === 'reset-password' && 'Reset Password'}
                             </span>
                         )}
-                    </button>
+                    </motion.button>
 
-                    {/* Google OAuth - Login and Register only */}
-                    {(mode === 'login' || mode === 'register') && (
+                    {/* Google OAuth - Login and Register only, only show if Google Auth is available */}
+                    {(mode === 'login' || mode === 'register') && isGoogleAuthAvailable() && (
                         <>
                             {/* Divider */}
                             <div className="relative my-4">
